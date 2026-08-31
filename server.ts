@@ -192,6 +192,7 @@ function getFallbackMetadata(url: string) {
       { format_id: "22", ext: "mp4", resolution: "720p", vcodec: "h264", acodec: "aac", filesize: 25000000 },
       { format_id: "18", ext: "mp4", resolution: "360p", vcodec: "h264", acodec: "aac", filesize: 12000000 },
       { format_id: "140", ext: "m4a", resolution: "audio", acodec: "aac", filesize: 4500000 },
+      { format_id: "139", ext: "m4a", resolution: "audio", acodec: "aac", filesize: 2500000 },
       { format_id: "251", ext: "mp3", resolution: "audio", acodec: "opus", filesize: 3800000 }
     ]
   };
@@ -397,6 +398,7 @@ app.post("/api/download", async (req, res) => {
     else if (quality === "480p") formatSpec = "bestvideo[height<=480]+bestaudio/best[height<=480]";
     else if (quality === "720p") formatSpec = "bestvideo[height<=720]+bestaudio/best[height<=720]";
     else if (quality === "1080p") formatSpec = "bestvideo[height<=1080]+bestaudio/best[height<=1080]";
+    else if (quality) formatSpec = quality;
     args.push("-f", formatSpec);
     if (fileExt === "mp4") args.push("--merge-output-format", "mp4");
   }

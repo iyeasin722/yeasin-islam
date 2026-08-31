@@ -33,10 +33,29 @@ export default function App() {
   // Check system status on mount
   useEffect(() => {
     fetch('/api/system-status')
-      .then(res => res.json())
-      .then(data => setSystemStatus(data))
+      .then(async res => {
+        const ct = res.headers.get('content-type');
+        if (ct && ct.includes('application/json')) {
+          const data = await res.json();
+          setSystemStatus(data);
+        }
+      })
       .catch(err => console.error('Failed to fetch system status:', err));
   }, []);
+
+  // Helper to parse JSON safely
+  const parseJsonOrThrow = async (response: Response, defaultMessage: string) => {
+    const ct = response.headers.get('content-type');
+    if (!ct || !ct.includes('application/json')) {
+      const text = await response.text();
+      throw new Error(response.ok ? defaultMessage : `Server Error (${response.status}): ${text.slice(0, 120)}`);
+    }
+    const data = await response.json();
+    if (!response.ok) {
+      throw new Error(data.error || defaultMessage);
+    }
+    return data;
+  };
 
   // Handle URL Analysis (supports single or multi-line batch queue)
   const handleAnalyze = async (urls: string[]) => {
@@ -56,10 +75,7 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: primaryUrl }),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to analyze URL');
-      }
+      const data = await parseJsonOrThrow(response, 'Failed to analyze URL');
       setVideoInfo(data);
       setStep('info');
     } catch (err: any) {
@@ -102,10 +118,7 @@ export default function App() {
           ...config,
         }),
       });
-      const data = await response.json();
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to start download');
-      }
+      const data = await parseJsonOrThrow(response, 'Failed to start download');
       setTaskId(data.id);
       setTaskStatus({
         id: data.id,
@@ -130,11 +143,14 @@ export default function App() {
       try {
         const res = await fetch(`/api/status/${taskId}`);
         if (res.ok) {
-          const statusData: TaskStatus = await res.json();
-          setTaskStatus(statusData);
+          const ct = res.headers.get('content-type');
+          if (ct && ct.includes('application/json')) {
+            const statusData: TaskStatus = await res.json();
+            setTaskStatus(statusData);
 
-          if (statusData.status === 'completed' || statusData.status === 'error' || statusData.status === 'cancelled') {
-            clearInterval(interval);
+            if (statusData.status === 'completed' || statusData.status === 'error' || statusData.status === 'cancelled') {
+              clearInterval(interval);
+            }
           }
         }
       } catch (err) {
