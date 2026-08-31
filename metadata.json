@@ -1,0 +1,6 @@
+{
+  "name": "FluxLoad",
+  "description": "Free, ads-free local video and audio downloader powered by yt-dlp and FFmpeg",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
