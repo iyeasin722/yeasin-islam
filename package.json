@@ -15,23 +15,31 @@
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
     "@vitejs/plugin-react": "^5.0.4",
+    "archiver": "^8.0.0",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "firebase": "^12.18.0",
+    "instagram-url-direct": "^2.0.7",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
+    "multer": "^2.4.0",
+    "qrcode": "^1.5.4",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "recharts": "^3.10.1",
     "vite": "^6.2.3"
   },
   "devDependencies": {
+    "@types/archiver": "^8.0.0",
+    "@types/express": "^4.17.21",
+    "@types/multer": "^2.2.0",
     "@types/node": "^22.14.0",
+    "@types/qrcode": "^1.5.6",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3",
-    "@types/express": "^4.17.21"
+    "vite": "^6.2.3"
   }
 }

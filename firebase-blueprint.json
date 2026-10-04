@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "DownloadHistory": {
+      "title": "DownloadHistory",
+      "description": "User download history records",
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "type": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "quality": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "format": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "id",
+        "userId",
+        "title",
+        "url",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "users/{userId}/downloads/{downloadId}": {
+      "schema": "DownloadHistory",
+      "description": "Per-user download history subcollection"
+    }
+  }
+}

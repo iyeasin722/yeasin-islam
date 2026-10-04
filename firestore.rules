@@ -1,0 +1,48 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidDownloadHistory(data) {
+      return data.keys().hasAll(['id', 'userId', 'title', 'url', 'createdAt']) &&
+        data.keys().size() <= 10 &&
+        data.id is string && data.id.size() <= 128 &&
+        data.userId is string && data.userId == request.auth.uid &&
+        data.title is string && data.title.size() <= 500 &&
+        data.url is string && data.url.size() <= 2048 &&
+        (!data.keys().hasAny(['type']) || (data.type is string && data.type.size() <= 32)) &&
+        (!data.keys().hasAny(['quality']) || (data.quality is string && data.quality.size() <= 32)) &&
+        (!data.keys().hasAny(['format']) || (data.format is string && data.format.size() <= 32)) &&
+        data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    match /users/{userId}/downloads/{downloadId} {
+      allow get, list: if isOwner(userId);
+      allow create: if isOwner(userId) && isValidId(downloadId) && isValidId(userId) && isValidDownloadHistory(incoming()) && incoming().userId == userId;
+      allow update: if isOwner(userId) && isValidId(downloadId) && isValidId(userId) && isValidDownloadHistory(incoming()) && incoming().userId == existing().userId && incoming().id == existing().id;
+      allow delete: if isOwner(userId) && isValidId(downloadId) && isValidId(userId);
+    }
+  }
+}

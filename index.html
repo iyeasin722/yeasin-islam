@@ -2,7 +2,68 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function() {
+        // Prevent extension collision errors (e.g. MetaMask / Coinbase wallet redefining window.ethereum)
+        window.addEventListener('error', function(event) {
+          var msg = (event && (event.message || (event.error && event.error.message))) || '';
+          if (
+            msg.indexOf('Cannot redefine property: ethereum') !== -1 ||
+            msg.indexOf('redefine property: ethereum') !== -1 ||
+            (msg.indexOf('ethereum') !== -1 && msg.indexOf('redefine') !== -1)
+          ) {
+            if (event.stopImmediatePropagation) event.stopImmediatePropagation();
+            if (event.preventDefault) event.preventDefault();
+            return true;
+          }
+        }, true);
+
+        var prevOnError = window.onerror;
+        window.onerror = function(msg, url, line, col, error) {
+          var text = String(msg || '');
+          if (text.indexOf('Cannot redefine property: ethereum') !== -1 || text.indexOf('ethereum') !== -1) {
+            return true;
+          }
+          if (typeof prevOnError === 'function') {
+            return prevOnError.apply(this, arguments);
+          }
+          return false;
+        };
+
+        try {
+          var _ethereum;
+          Object.defineProperty(window, 'ethereum', {
+            configurable: true,
+            enumerable: true,
+            get: function() { return _ethereum; },
+            set: function(val) { _ethereum = val; }
+          });
+        } catch (e) {}
+
+        try {
+          var origDef = Object.defineProperty;
+          Object.defineProperty = function(obj, prop, descriptor) {
+            if (obj === window && prop === 'ethereum') {
+              try {
+                return origDef.call(Object, obj, prop, Object.assign({}, descriptor, { configurable: true }));
+              } catch (err) {
+                return obj;
+              }
+            }
+            return origDef.apply(this, arguments);
+          };
+        } catch (e) {}
+      })();
+    </script>
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#020617" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="FluxLoad" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="manifest" href="/manifest.json" />
     <title>FluxLoad — Free & Private Video Downloader</title>
     <meta name="description" content="Free, ads-free local video and audio downloader powered by yt-dlp and FFmpeg." />
     <meta property="og:title" content="FluxLoad — Free & Private Video Downloader" />
