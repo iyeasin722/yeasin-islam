@@ -331,8 +331,9 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
     }
   };
 
-  // Dynamic check for YouTube authentication state
+  // Dynamic check for YouTube & Instagram authentication state
   const [hasYtAuth, setHasYtAuth] = useState<boolean>(false);
+  const [hasIgAuth, setHasIgAuth] = useState<boolean>(false);
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -340,6 +341,7 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
         if (res.ok) {
           const data = await res.json();
           setHasYtAuth(Boolean(data.hasCookies && (data.hasYouTubeLoginInfo || data.hasYouTubeSID)));
+          setHasIgAuth(Boolean(data.hasInstagramSession || data.platforms?.instagram?.hasCookies || data.detectedDomains?.includes('instagram.com')));
         }
       } catch {}
     };
@@ -1437,7 +1439,11 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
                 <div className="flex justify-between text-xs text-slate-400">
                   <span className="font-mono">Progress:</span>
                   <span className="font-mono font-bold text-cyan-400">
-                    {taskStatus.progress?.toFixed(1) || 0}%
+                    {taskStatus.status === 'completed' || phase === 'completed'
+                      ? '100'
+                      : phase === 'processing' || taskStatus.progress >= 99
+                      ? '99'
+                      : Math.round(taskStatus.progress || 0)}%
                   </span>
                 </div>
                 <div className="w-full bg-slate-900 rounded-full h-3 overflow-hidden p-0.5 border border-slate-800">
@@ -1493,17 +1499,27 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
 
                   {/* Contextual helper buttons */}
                   <div className="flex items-center gap-2 pt-1 flex-wrap">
-                    {(taskStatus?.needsCookies ||
+                    {(taskStatus?.isInstagramError ||
+                      activePreview?.isInstagramBlocked ||
+                      (taskStatus?.error && taskStatus.error.toLowerCase().includes('instagram')) ||
+                      (error && error.toLowerCase().includes('instagram'))) && onOpenSettings ? (
+                      <button
+                        type="button"
+                        onClick={() => onOpenSettings('instagram')}
+                        className="px-3.5 py-1.5 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 text-white rounded-lg text-xs font-bold transition-all flex items-center space-x-1.5 shadow-md shadow-pink-600/30 cursor-pointer"
+                      >
+                        <Cookie className="w-3.5 h-3.5" />
+                        <span>Add Instagram Cookies (ইনস্টাগ্রাম কুকিজ যোগ করুন)</span>
+                      </button>
+                    ) : (taskStatus?.needsCookies ||
                       taskStatus?.botBlocked ||
                       (taskStatus?.error && (
                         taskStatus.error.toLowerCase().includes('cookie') ||
-                        taskStatus.error.toLowerCase().includes('instagram') ||
                         taskStatus.error.toLowerCase().includes('bot') ||
                         taskStatus.error.toLowerCase().includes('login')
                       )) ||
                       (error && (
                         error.toLowerCase().includes('cookie') ||
-                        error.toLowerCase().includes('instagram') ||
                         error.toLowerCase().includes('bot')
                       ))) && onOpenSettings && (
                       <button
@@ -1902,9 +1918,23 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
         <span className="px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700/40 text-slate-300">
           TikTok
         </span>
-        <span className="px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700/40 text-slate-300">
-          Instagram
-        </span>
+        <button
+          type="button"
+          onClick={() => onOpenSettings ? onOpenSettings('instagram') : undefined}
+          className={`px-2.5 py-0.5 rounded-full border transition-colors flex items-center gap-1 font-medium cursor-pointer ${
+            hasIgAuth
+              ? 'bg-gradient-to-r from-pink-950/60 to-purple-950/60 border-pink-500/40 text-pink-300 hover:from-pink-900/60 hover:to-purple-900/60'
+              : 'bg-slate-800/60 border-slate-700/40 text-slate-300 hover:border-pink-500/50 hover:text-pink-300'
+          }`}
+          title={
+            hasIgAuth
+              ? 'Instagram Session Connected! Public & private Reels/Posts download smoothly. Click to manage cookies.'
+              : 'Instagram: Click to add your sessionid / cookies to download any Instagram Reel or video without limits.'
+          }
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${hasIgAuth ? 'bg-emerald-400' : 'bg-pink-400'}`}></span>
+          <span>Instagram {hasIgAuth ? '(Connected)' : '(Add Cookies)'}</span>
+        </button>
         <span className="px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700/40 text-slate-300">
           Facebook
         </span>

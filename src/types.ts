@@ -25,6 +25,8 @@ export interface VideoInfo {
   webpage_url: string;
   needsCookies?: boolean;
   botBlocked?: boolean;
+  isInstagramBlocked?: boolean;
+  warning?: string;
   maxHeight?: number;
   maxWidth?: number;
   availableQualities?: VideoQuality[];
@@ -192,6 +194,7 @@ export interface TaskStatus {
   downloadUrl?: string;
   needsCookies?: boolean;
   botBlocked?: boolean;
+  isInstagramError?: boolean;
   platform?: string;
 }
 

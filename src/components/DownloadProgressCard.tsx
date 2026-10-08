@@ -296,7 +296,11 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
                 {taskStatus.progress >= 99 ? 'Merging Streams (FFmpeg)' : 'Live Stream Download'}
               </span>
               <span className="text-cyan-400 font-mono font-bold text-sm">
-                {taskStatus.progress >= 99 ? '99.5% (Merging...)' : `${taskStatus.progress.toFixed(1)}%`}
+                {taskStatus.status === 'completed'
+                  ? '100%'
+                  : taskStatus.status === 'processing' || taskStatus.progress >= 99
+                  ? '99% (Finalizing & Merging...)'
+                  : `${Math.round(taskStatus.progress)}%`}
               </span>
             </div>
             <div className="w-full h-3.5 bg-slate-950 rounded-full overflow-hidden p-0.5 border border-slate-800 shadow-inner">

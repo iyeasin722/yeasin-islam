@@ -51,7 +51,7 @@ const PLATFORMS: PlatformPreset[] = [
     bgGlow: 'shadow-purple-500/10 border-purple-500/40',
     iconText: '📸 Instagram',
     exampleUrl: 'https://www.instagram.com/reel/...',
-    guideTextBn: 'ইনস্টাগ্রাম রিলসের নিচে শেয়ার অপশন থেকে লিঙ্ক কপি করে এখানে পেস্ট করুন। আসল রেজ্যুলেশনে ডাউনলোড হবে।',
+    guideTextBn: 'ইনস্টাগ্রাম রিলস বা পোস্টের শেয়ার অপশন থেকে লিঙ্ক কপি করে পেস্ট করুন। আসল রেজ্যুলেশনে ডাউনলোড হবে। লগইন প্রয়োজন হলে Settings → Site Cookies থেকে sessionid যোগ করুন।',
   },
   {
     id: 'shorts',

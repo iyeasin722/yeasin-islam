@@ -208,6 +208,13 @@ function rebuildMergedCookies() {
       fs.writeFileSync(PERMANENT_COOKIE_PATH, merged, "utf-8");
       fs.writeFileSync(USER_COOKIE_BACKUP_PATH, merged, "utf-8");
       console.log(` [✓] Successfully rebuilt merged cookies: ${lines.size} entries across platforms.`);
+
+      // Automatically sync Instagram lines to dedicated platform cookie file
+      const igLines = Array.from(lines).filter((l) => l.includes(".instagram.com") || l.includes("sessionid"));
+      if (igLines.length > 0) {
+        const igPath = getPlatformCookiePath("instagram");
+        fs.writeFileSync(igPath, ["# Netscape HTTP Cookie File", ...igLines].join("\n") + "\n", "utf-8");
+      }
     }
   } catch (err) {
     console.warn("[Cookies] Error rebuilding merged cookies:", err);
@@ -279,17 +286,39 @@ function getCookieArgs(targetUrl?: string): string[] {
   }
   try {
     // If target is Instagram:
-    // Only use cookies if an explicit valid Instagram cookie file with sessionid exists!
-    // Otherwise DO NOT pass cookies (anonymous public download works natively without errors).
     if (targetUrl && targetUrl.toLowerCase().includes("instagram.com")) {
       const igPath = getPlatformCookiePath("instagram");
       if (fs.existsSync(igPath) && fs.statSync(igPath).size > 10) {
         try {
           const content = fs.readFileSync(igPath, "utf-8");
-          if (content.includes("sessionid")) {
+          if (content.includes("sessionid") || content.includes(".instagram.com")) {
             args.push("--cookies", igPath);
+            return args;
           }
         } catch {}
+      }
+
+      // Check global cookie files (COOKIE_FILE_PATH, PERMANENT_COOKIE_PATH, USER_COOKIE_BACKUP_PATH)
+      const candidateFiles = [COOKIE_FILE_PATH, PERMANENT_COOKIE_PATH, USER_COOKIE_BACKUP_PATH];
+      for (const f of candidateFiles) {
+        if (fs.existsSync(f) && fs.statSync(f).size > 10) {
+          try {
+            const content = fs.readFileSync(f, "utf-8");
+            if (content.includes(".instagram.com") || content.includes("sessionid")) {
+              try {
+                const igLines = content.split("\n").filter((l) => l.includes(".instagram.com") || l.includes("sessionid"));
+                if (igLines.length > 0) {
+                  if (!fs.existsSync(path.dirname(igPath))) {
+                    fs.mkdirSync(path.dirname(igPath), { recursive: true });
+                  }
+                  fs.writeFileSync(igPath, ["# Netscape HTTP Cookie File", ...igLines].join("\n") + "\n", "utf-8");
+                }
+              } catch {}
+              args.push("--cookies", f);
+              return args;
+            }
+          } catch {}
+        }
       }
       return args;
     }
@@ -342,6 +371,7 @@ interface ActiveTask {
   downloadUrl?: string;
   needsCookies?: boolean;
   botBlocked?: boolean;
+  isInstagramError?: boolean;
   platform?: string;
   process?: ChildProcess | NodeJS.Timeout;
 }
@@ -1372,6 +1402,14 @@ async function analyzeSingleUrl(rawUrl: string): Promise<any> {
         }
         const isBotBlocked = stderrData.includes("Sign in to confirm you’re not a bot") ||
           (stderrData.includes("ERROR: [youtube]") && stderrData.includes("Sign in"));
+        const isIgBlocked = isInstagram && (
+          stderrData.includes("empty media response") ||
+          stderrData.includes("API is not granting access") ||
+          stderrData.includes("login required") ||
+          stderrData.includes("authentication") ||
+          stderrData.includes("rate-limit") ||
+          stderrData.includes("login to see this")
+        );
         const fallback = getFallbackMetadata(url, tgMeta || tiktokMeta || (ytOembedMeta ? {
           title: ytOembedMeta.title,
           uploader: ytOembedMeta.author,
@@ -1379,8 +1417,12 @@ async function analyzeSingleUrl(rawUrl: string): Promise<any> {
         } : undefined));
         return resolve({
           ...fallback,
-          needsCookies: isBotBlocked,
+          needsCookies: isBotBlocked || isIgBlocked,
           botBlocked: isBotBlocked,
+          isInstagramBlocked: isIgBlocked,
+          warning: isIgBlocked
+            ? "Instagram authentication required for this video. Please click 'Add Instagram Cookies' to download."
+            : undefined,
         });
       }
 
@@ -1678,8 +1720,16 @@ function executeDownloadTask(
   if (type === "audio") {
     formatSpec = "bestaudio/best";
   } else if (isInstagram) {
-    // Instagram serves separate DASH video and audio streams. yt-dlp merges them into high-def mp4 with audio.
-    formatSpec = "bestvideo+bestaudio/best";
+    if (type === "audio") {
+      formatSpec = "bestaudio/best";
+    } else if (quality === "720p") {
+      formatSpec = "best[height<=720]/bestvideo[height<=720]+bestaudio/best/bestvideo+bestaudio";
+    } else if (quality === "1080p") {
+      formatSpec = "best[height<=1080]/bestvideo[height<=1080]+bestaudio/best/bestvideo+bestaudio";
+    } else {
+      // Instagram serves both single progressive mp4 streams and separate DASH streams
+      formatSpec = "best/bestvideo+bestaudio/bestvideo[ext=mp4]+bestaudio[ext=m4a]";
+    }
   } else if (isTikTok || isTelegram) {
     // TikTok and Telegram deliver single progressive streams without separate DASH audio
     formatSpec = "best/bestvideo+bestaudio";
@@ -2068,8 +2118,9 @@ function executeDownloadTask(
           if (stderrBuffer.includes("Instagram sent an empty media response") ||
               stderrBuffer.includes("Instagram API is not granting access") ||
               (stderrBuffer.includes("[Instagram]") && (stderrBuffer.includes("login required") || stderrBuffer.includes("rate-limit") || stderrBuffer.includes("empty media") || stderrBuffer.includes("authentication")))) {
-            userMsg = "Instagram Reel or post could not be retrieved. Public reels download directly without cookies; if this post is from a private account or age-restricted, please add your cookies via Settings → Site Cookies.";
+            userMsg = "Instagram requires session cookies for this Reel/Video. Please click 'Add Instagram Cookies' to paste your sessionid (from browser F12 Application > Cookies) to download immediately.";
             task.needsCookies = true;
+            task.isInstagramError = true;
           } else if (stderrBuffer.includes("universal data for rehydration") || stderrBuffer.includes("[TikTok]")) {
             userMsg = "TikTok video rehydration error. The video may be region-locked or restricted.";
           } else if (stderrBuffer.includes("HTTP Error 502") || stderrBuffer.includes("Bad Gateway")) {
@@ -2827,9 +2878,16 @@ app.post("/api/cookies", (req, res) => {
     fs.writeFileSync(USER_COOKIE_BACKUP_PATH, finalContent.trim(), "utf-8");
     fs.writeFileSync(PERMANENT_COOKIE_PATH, finalContent.trim(), "utf-8");
 
-    const lines = finalContent.split("\n").filter(l => l.trim().length > 0 && (!l.startsWith("#") || l.startsWith("#HttpOnly_")));
+    const lines = finalContent.split("\n").filter((l) => l.trim().length > 0 && (!l.startsWith("#") || l.startsWith("#HttpOnly_")));
     const hasInstagramSession = finalContent.includes("sessionid");
     const hasYouTubeSession = finalContent.includes("SAPISID") || finalContent.includes("LOGIN_INFO") || finalContent.includes("SID");
+
+    // Automatically sync Instagram lines to dedicated platform cookie file
+    const igLines = lines.filter((l) => l.includes(".instagram.com") || l.includes("sessionid"));
+    if (igLines.length > 0) {
+      const igPath = getPlatformCookiePath("instagram");
+      fs.writeFileSync(igPath, ["# Netscape HTTP Cookie File", ...igLines].join("\n") + "\n", "utf-8");
+    }
 
     let statusMsg = `Successfully saved ${lines.length} cookie entries permanently.`;
     if (hasInstagramSession) {
@@ -2868,9 +2926,23 @@ app.delete("/api/cookies", (req, res) => {
 
 // API: Test Cookies with YouTube, Instagram, or Custom URL
 app.post("/api/cookies/test", async (req, res) => {
-  const cookieArgs = getCookieArgs();
+  const { platform, url: customUrl } = req.body || {};
+  let testUrl = (typeof customUrl === "string" && customUrl.trim()) ? customUrl.trim() : "";
+
+  if (!testUrl) {
+    if (platform === "instagram") {
+      testUrl = "https://www.instagram.com/reel/Dd75uqqymQs/";
+    } else {
+      // Default to a widely playable official video that verifies session authentication
+      testUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
+    }
+  }
+
+  const cookieArgs = getCookieArgs(testUrl);
+  const igPath = getPlatformCookiePath("instagram");
+  const hasIgCookie = fs.existsSync(igPath) && fs.statSync(igPath).size > 10;
   const hasCookiesFile = fs.existsSync(COOKIE_FILE_PATH) && fs.statSync(COOKIE_FILE_PATH).size > 10;
-  if (!hasCookiesFile && !fs.existsSync(PERMANENT_COOKIE_PATH)) {
+  if (!hasCookiesFile && !fs.existsSync(PERMANENT_COOKIE_PATH) && !hasIgCookie) {
     return safeJson(res, 400, { success: false, error: "No cookies currently saved to test." });
   }
 
@@ -2878,18 +2950,6 @@ app.post("/api/cookies/test", async (req, res) => {
   try {
     cookieContent = fs.readFileSync(fs.existsSync(COOKIE_FILE_PATH) ? COOKIE_FILE_PATH : PERMANENT_COOKIE_PATH, "utf-8");
   } catch {}
-
-  const { platform, url: customUrl } = req.body || {};
-  let testUrl = (typeof customUrl === "string" && customUrl.trim()) ? customUrl.trim() : "";
-
-  if (!testUrl) {
-    if (platform === "instagram") {
-      testUrl = "https://www.instagram.com/reel/C2iTfF5sF0c/";
-    } else {
-      // Default to a widely playable official video that verifies session authentication
-      testUrl = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
-    }
-  }
 
   const isYouTubeTest = testUrl.includes("youtube.com") || testUrl.includes("youtu.be");
   const isInstagramTest = testUrl.includes("instagram.com");
@@ -2986,6 +3046,15 @@ app.post("/api/cookies/test", async (req, res) => {
           hasYouTubeSID,
           hasYouTubeLoginInfo,
           hasYouTubeSAPISID,
+          testUrl
+        });
+      }
+
+      if (isInstagramTest) {
+        return safeJson(res, 200, {
+          success: false,
+          error: "Instagram returned an empty media response or requires login session.",
+          guidance: "Please add your Instagram 'sessionid' cookie: Log in to instagram.com -> Press F12 -> Application -> Cookies -> instagram.com -> copy the value of 'sessionid' and paste into Instagram Cookie Profile in Settings.",
           testUrl
         });
       }

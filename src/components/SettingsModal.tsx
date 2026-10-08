@@ -920,6 +920,16 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
 
                     <button
                       type="button"
+                      onClick={() => handleTestCookies('instagram')}
+                      disabled={isCookieTesting}
+                      className="px-3 py-2 bg-fuchsia-500/20 hover:bg-fuchsia-500/30 border border-fuchsia-500/40 text-fuchsia-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors disabled:opacity-40 shadow-sm"
+                    >
+                      {isCookieTesting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                      <span>Test Instagram</span>
+                    </button>
+
+                    <button
+                      type="button"
                       onClick={handleDeleteCookies}
                       disabled={isCookieSaving}
                       className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-xl text-xs font-semibold transition-colors disabled:opacity-40"
@@ -1060,9 +1070,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                       className="w-full p-2 bg-slate-950 border border-slate-700 rounded-lg text-slate-200 placeholder-slate-600 font-mono text-[11px] focus:outline-none focus:ring-1 focus:ring-cyan-500 resize-none"
                     />
                     {activePlatformModal === 'instagram' && (
-                      <p className="text-[10px] text-amber-300/90 leading-tight">
-                        💡 <strong>How to get Instagram Cookie:</strong> Log in to instagram.com in your browser &rarr; Press F12 &rarr; Application &rarr; Cookies &rarr; copy the value of <code>sessionid</code> and paste here.
-                      </p>
+                      <div className="space-y-1.5 p-2.5 bg-slate-950/80 rounded-lg border border-slate-800 text-[11px] text-slate-300">
+                        <p className="text-amber-300 font-semibold flex items-center gap-1">
+                          💡 <strong>How to get Instagram Cookie / sessionid (সহজ নিয়ম):</strong>
+                        </p>
+                        <ol className="list-decimal pl-4 space-y-1 text-slate-300 text-[10.5px]">
+                          <li>PC ব্রাউজারে <a href="https://www.instagram.com" target="_blank" rel="noreferrer" className="text-cyan-400 underline">instagram.com</a>-এ লগইন করুন।</li>
+                          <li>কীবোর্ডে <kbd className="px-1 py-0.5 bg-slate-800 rounded text-slate-200">F12</kbd> (বা Inspect) চাপুন।</li>
+                          <li><span className="font-semibold text-slate-200">Application</span> (বা Storage) &rarr; <span className="font-semibold text-slate-200">Cookies</span> &rarr; <code>instagram.com</code> সিলেক্ট করুন।</li>
+                          <li><code className="text-pink-400 font-bold">sessionid</code> নামের কুকিটির Value কপি করে এখানে পেস্ট করুন। (অথবা Cookie-Editor এক্সটেনশন দিয়ে Netscape/JSON এক্সপোর্ট করে পেস্ট করতে পারেন)।</li>
+                        </ol>
+                      </div>
                     )}
                     <div className="flex items-center justify-end space-x-2">
                       <button
