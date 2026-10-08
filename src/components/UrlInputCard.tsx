@@ -46,6 +46,7 @@ import {
   QrCode,
   Zap,
   Key,
+  Send,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { QrCodeModal } from './QrCodeModal';
@@ -133,6 +134,16 @@ interface UrlInputCardProps {
   onModeChange: (mode: AppNavMode) => void;
   settings?: FluxLoadSettings;
   onOpenSettings?: (platform?: string) => void;
+  onOpenTelegramExport?: (params: {
+    taskId?: string;
+    downloadUrl?: string;
+    title?: string;
+    thumbnail?: string;
+    fileSize?: string;
+    format?: string;
+    isAudio?: boolean;
+  }) => void;
+  onOpenTelegramSettings?: () => void;
   onOpenAudioCutter?: (taskId?: string, mediaUrl?: string, title?: string) => void;
   onOpenMediaPlayer?: (url: string, title?: string, type?: 'video' | 'audio', taskId?: string) => void;
   onPauseSingle?: () => void;
@@ -163,6 +174,8 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
   onModeChange,
   settings,
   onOpenSettings,
+  onOpenTelegramExport,
+  onOpenTelegramSettings,
   onOpenAudioCutter,
   onOpenMediaPlayer,
   onPauseSingle,
@@ -331,9 +344,11 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
     }
   };
 
-  // Dynamic check for YouTube & Instagram authentication state
+  // Dynamic check for YouTube, Instagram & Telegram authentication/integration state
   const [hasYtAuth, setHasYtAuth] = useState<boolean>(false);
   const [hasIgAuth, setHasIgAuth] = useState<boolean>(false);
+  const [hasTgAuth, setHasTgAuth] = useState<boolean>(false);
+  const [tgChannelTitle, setTgChannelTitle] = useState<string>('');
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -342,6 +357,17 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
           const data = await res.json();
           setHasYtAuth(Boolean(data.hasCookies && (data.hasYouTubeLoginInfo || data.hasYouTubeSID)));
           setHasIgAuth(Boolean(data.hasInstagramSession || data.platforms?.instagram?.hasCookies || data.detectedDomains?.includes('instagram.com')));
+        }
+      } catch {}
+
+      try {
+        const tgRes = await fetch('/api/telegram/config');
+        if (tgRes.ok) {
+          const tgData = await tgRes.json();
+          setHasTgAuth(Boolean(tgData.configured));
+          if (tgData.configured) {
+            setTgChannelTitle(tgData.channelTitle || tgData.chatId || '');
+          }
         }
       } catch {}
     };
@@ -873,7 +899,7 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
                   if (urlValidationError) setUrlValidationError(null);
                 }}
                 disabled={isBusy}
-                placeholder="Paste media link here (YouTube, TikTok, Instagram, Twitter, Facebook, etc.)..."
+                placeholder="Paste media link here (YouTube, TikTok, Instagram, Telegram Channel, Twitter, Facebook, etc.)..."
                 required
                 className="w-full pl-4 pr-16 sm:pr-52 py-3.5 bg-slate-950/80 border border-slate-700/80 rounded-2xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 text-sm md:text-base transition-all shadow-inner disabled:opacity-60"
               />
@@ -1659,21 +1685,44 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
                         <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
                         <span>🎉 সম্পূর্ণ ভিডিও আপনার ডিভাইসের Downloads ফোল্ডারে স্বয়ংক্রিয়ভাবে সেভ হয়েছে! (Auto-Saved)</span>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (onResetSingle) {
-                            onResetSingle();
-                            setSingleUrl('');
-                            setLocalPreview(null);
-                            lastAnalyzedUrlRef.current = '';
-                          }
-                        }}
-                        className="w-full py-3 px-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/20 transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm tracking-wide cursor-pointer"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        <span>🔄 Download Another Video / পরবর্তী ভিডিও ডাউনলোড করুন</span>
-                      </button>
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onResetSingle) {
+                              onResetSingle();
+                              setSingleUrl('');
+                              setLocalPreview(null);
+                              lastAnalyzedUrlRef.current = '';
+                            }
+                          }}
+                          className="flex-1 py-3 px-4 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white font-bold rounded-xl shadow-lg shadow-cyan-500/20 transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm tracking-wide cursor-pointer"
+                        >
+                          <RotateCcw className="w-4 h-4" />
+                          <span>🔄 পরবর্তী ভিডিও ডাউনলোড করুন</span>
+                        </button>
+                        {onOpenTelegramExport && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onOpenTelegramExport({
+                                taskId: taskStatus.id,
+                                downloadUrl: taskStatus.downloadUrl,
+                                title: activePreview?.title || videoInfo?.title || taskStatus?.filename || 'Downloaded Media',
+                                thumbnail: activePreview?.thumbnail || videoInfo?.thumbnail,
+                                fileSize: taskStatus.downloadedSize || taskStatus.totalSize,
+                                format: quickFormat,
+                                isAudio: isAudioOnly,
+                              })
+                            }
+                            className="py-3 px-4 bg-sky-500/25 hover:bg-sky-500/35 border border-sky-500/40 text-sky-300 font-bold rounded-xl shadow-md transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm cursor-pointer"
+                            title="সরাসরি টেলিগ্রাম চ্যানেলে ফাইলটি পোস্ট করুন"
+                          >
+                            <Send className="w-4 h-4 text-sky-400" />
+                            <span>টেলিগ্রাম চ্যানেলে পাঠান</span>
+                          </button>
+                        )}
+                      </div>
                       <div className="text-center pt-1">
                         <button
                           type="button"
@@ -1781,6 +1830,29 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
                   >
                     <Play className="w-3.5 h-3.5 fill-current" />
                     <span>Player</span>
+                  </button>
+                )}
+
+                {/* Send to Telegram Channel Button */}
+                {phase === 'completed' && taskStatus.downloadUrl && onOpenTelegramExport && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenTelegramExport({
+                        taskId: taskStatus.id,
+                        downloadUrl: taskStatus.downloadUrl,
+                        title: activePreview?.title || videoInfo?.title || taskStatus?.filename || 'Downloaded Media',
+                        thumbnail: activePreview?.thumbnail || videoInfo?.thumbnail,
+                        fileSize: taskStatus.downloadedSize || taskStatus.totalSize,
+                        format: quickFormat,
+                        isAudio: isAudioOnly,
+                      })
+                    }
+                    className="py-2 px-3 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
+                    title="টেলিগ্রাম চ্যানেলে পাঠান"
+                  >
+                    <Send className="w-3.5 h-3.5 text-sky-400" />
+                    <span>টেলিগ্রাম চ্যানেল</span>
                   </button>
                 )}
 
@@ -1934,6 +2006,29 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
         >
           <span className={`w-1.5 h-1.5 rounded-full ${hasIgAuth ? 'bg-emerald-400' : 'bg-pink-400'}`}></span>
           <span>Instagram {hasIgAuth ? '(Connected)' : '(Add Cookies)'}</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            if (onOpenTelegramSettings) {
+              onOpenTelegramSettings();
+            } else if (onOpenSettings) {
+              onOpenSettings('telegram');
+            }
+          }}
+          className={`px-2.5 py-0.5 rounded-full border transition-colors flex items-center gap-1 font-medium cursor-pointer ${
+            hasTgAuth
+              ? 'bg-sky-950/60 border-sky-500/40 text-sky-300 hover:bg-sky-900/60'
+              : 'bg-slate-800/60 border-slate-700/40 text-slate-300 hover:border-sky-500/50 hover:text-sky-300'
+          }`}
+          title={
+            hasTgAuth
+              ? `Telegram Channel Connected (${tgChannelTitle})! Click to manage channel or bot.`
+              : 'Telegram: Public channel/video download supported. Click to connect your Telegram Channel & Bot.'
+          }
+        >
+          <span className={`w-1.5 h-1.5 rounded-full ${hasTgAuth ? 'bg-sky-400' : 'bg-slate-400'}`}></span>
+          <span>Telegram {hasTgAuth ? `(${tgChannelTitle || 'Connected'})` : '(Channel & Bot)'}</span>
         </button>
         <span className="px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700/40 text-slate-300">
           Facebook

@@ -3733,6 +3733,357 @@ app.all(["/api/file/:jobId", "/api/jobs/:jobId/file", "/api/download/:jobId"], (
   });
 });
 
+// ==========================================
+// TELEGRAM BOT & CHANNEL INTEGRATION ROUTES
+// ==========================================
+const TELEGRAM_CONFIG_PATH = path.join(process.cwd(), "tmp", "telegram_config.json");
+const TELEGRAM_SAVED_PATH = path.join(process.cwd(), "telegram_saved.json");
+
+interface SavedTelegramConfig {
+  botToken: string;
+  chatId: string;
+  channelTitle?: string;
+  botUsername?: string;
+  autoSend?: boolean;
+}
+
+function getSavedTelegramConfig(): SavedTelegramConfig | null {
+  for (const p of [TELEGRAM_SAVED_PATH, TELEGRAM_CONFIG_PATH]) {
+    if (fs.existsSync(p)) {
+      try {
+        const raw = fs.readFileSync(p, "utf-8");
+        const parsed = JSON.parse(raw);
+        if (parsed.botToken && parsed.chatId) {
+          return parsed;
+        }
+      } catch {}
+    }
+  }
+  return null;
+}
+
+function writeTelegramConfig(cfg: SavedTelegramConfig) {
+  try {
+    if (!fs.existsSync(path.dirname(TELEGRAM_CONFIG_PATH))) {
+      fs.mkdirSync(path.dirname(TELEGRAM_CONFIG_PATH), { recursive: true });
+    }
+    const data = JSON.stringify(cfg, null, 2);
+    fs.writeFileSync(TELEGRAM_CONFIG_PATH, data, "utf-8");
+    fs.writeFileSync(TELEGRAM_SAVED_PATH, data, "utf-8");
+  } catch (err) {
+    console.warn("[Telegram Config] Write error:", err);
+  }
+}
+
+// Helper to normalize and sanitize Telegram channel usernames or IDs
+function sanitizeTelegramChatId(input: string): string {
+  if (!input) return "";
+  let clean = input.trim();
+  clean = clean.replace(/\/+$/, "");
+
+  // Match full links e.g. https://t.me/crypto_mining_s_e_x or https://t.me/s/crypto_mining_s_e_x
+  const tmeMatch = clean.match(/(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me)\/(?:s\/)?([a-zA-Z0-9_]+)/i);
+  if (tmeMatch && tmeMatch[1] && !clean.includes("/+")) {
+    return "@" + tmeMatch[1];
+  }
+
+  // If user provided username without @ and not numeric ID
+  if (!clean.startsWith("@") && !clean.startsWith("-") && /^[a-zA-Z0-9_]{3,}$/.test(clean)) {
+    return "@" + clean;
+  }
+
+  return clean;
+}
+
+// GET /api/telegram/config
+app.get("/api/telegram/config", (req, res) => {
+  const cfg = getSavedTelegramConfig();
+  if (!cfg) {
+    return safeJson(res, 200, { configured: false });
+  }
+  const tokenParts = cfg.botToken.split(":");
+  const masked = tokenParts.length === 2
+    ? `${tokenParts[0]}:****${tokenParts[1].slice(-4)}`
+    : `****${cfg.botToken.slice(-4)}`;
+  safeJson(res, 200, {
+    configured: true,
+    botTokenMasked: masked,
+    chatId: cfg.chatId,
+    channelTitle: cfg.channelTitle || cfg.chatId,
+    botUsername: cfg.botUsername,
+    autoSend: Boolean(cfg.autoSend),
+  });
+});
+
+// POST /api/telegram/config (Validate & Save)
+app.post("/api/telegram/config", async (req, res) => {
+  const { botToken, chatId, autoSend } = req.body || {};
+  if (!botToken || typeof botToken !== "string" || !botToken.includes(":")) {
+    return safeJson(res, 400, { error: "Please enter a valid Telegram Bot Token from @BotFather (e.g. 123456789:ABCdefGhIjk...)" });
+  }
+  if (!chatId || typeof chatId !== "string" || chatId.trim().length < 2) {
+    return safeJson(res, 400, { error: "Please enter a valid Telegram Channel username (e.g. @my_channel) or Chat ID." });
+  }
+
+  const cleanToken = botToken.trim();
+  const cleanChatId = sanitizeTelegramChatId(chatId);
+
+  try {
+    // 1. Verify Bot Token with getMe
+    const meRes = await fetch(`https://api.telegram.org/bot${cleanToken}/getMe`);
+    const meData = await meRes.json();
+    if (!meData.ok) {
+      return safeJson(res, 400, {
+        error: `Invalid Telegram Bot Token: ${meData.description || 'Unauthorized'}. Please make sure you copied the full token from @BotFather.`
+      });
+    }
+
+    const botUsername = meData.result?.username || "";
+
+    // 2. Verify Channel / Chat access with getChat
+    const chatRes = await fetch(`https://api.telegram.org/bot${cleanToken}/getChat?chat_id=${encodeURIComponent(cleanChatId)}`);
+    const chatData = await chatRes.json();
+    if (!chatData.ok) {
+      const isNotFound = chatData.description?.toLowerCase().includes("not found");
+      const isForbidden = chatData.description?.toLowerCase().includes("forbidden") || chatData.description?.toLowerCase().includes("permission");
+      const botAddUrl = botUsername ? `https://t.me/${botUsername}?startchannel=true` : "";
+
+      let friendlyMsg = "";
+      if (isNotFound) {
+        friendlyMsg = `বট চ্যানেল "${cleanChatId}"-এ অ্যাক্সেস করতে পারছে না (${chatData.description})। টেলিগ্রাম চ্যানেলে বটকে অবশ্যই Administrator হিসেবে যোগ করতে হবে।\n\nঅনুগ্রহ করে নিচের ধাপগুলো সম্পন্ন করুন:\n১. আপনার চ্যানেলের সেটিংসে যান ➜ Administrators ➜ Add Admin হিসেবে @${botUsername} বটটিকে যোগ করুন।\n২. 'Post Messages' পারমিশন অন করে Save করুন।\n৩. চ্যানেলটি যদি পাবলিক হয় তবে ইউজারনেম নিশ্চিত করুন (যেমন: ${cleanChatId})।`;
+      } else if (isForbidden) {
+        friendlyMsg = `বটের মেসেজ পোস্ট করার অনুমতি নেই: ${chatData.description}। চ্যানেলের Administrators-এ গিয়ে @${botUsername}-কে 'Post Messages' পারমিশন দিন।`;
+      } else {
+        friendlyMsg = `বট চ্যানেলে যুক্ত হতে পারেনি (${chatData.description})। @${botUsername} বটটিকে চ্যানেলে Administrator হিসেবে যোগ করে 'Post Messages' পারমিশন দিন।`;
+      }
+
+      return safeJson(res, 400, {
+        error: friendlyMsg,
+        botUsername,
+        botAddUrl,
+        rawDescription: chatData.description,
+        cleanedChatId: cleanChatId
+      });
+    }
+
+    const channelTitle = chatData.result?.title || chatData.result?.username || cleanChatId;
+
+    const newCfg: SavedTelegramConfig = {
+      botToken: cleanToken,
+      chatId: cleanChatId,
+      channelTitle,
+      botUsername,
+      autoSend: Boolean(autoSend),
+    };
+    writeTelegramConfig(newCfg);
+
+    safeJson(res, 200, {
+      success: true,
+      message: `Successfully connected bot @${botUsername} to channel "${channelTitle}"!`,
+      channelTitle,
+      botUsername,
+      chatId: cleanChatId,
+    });
+  } catch (err: any) {
+    safeJson(res, 500, { error: `Failed to connect with Telegram API: ${err.message}` });
+  }
+});
+
+// POST /api/telegram/test (Send a test greeting to verify posting permissions)
+app.post("/api/telegram/test", async (req, res) => {
+  const saved = getSavedTelegramConfig();
+  const token = req.body?.botToken ? req.body.botToken.trim() : saved?.botToken;
+  const rawTargetChat = req.body?.chatId || saved?.chatId;
+  const targetChat = sanitizeTelegramChatId(rawTargetChat || "");
+
+  if (!token || !targetChat) {
+    return safeJson(res, 400, { error: "Telegram Bot Token and Channel ID must be configured before testing." });
+  }
+
+  try {
+    const text = `🚀 <b>FluxLoad Connected!</b>\n\nYour Telegram Channel is now connected to <b>FluxLoad Video Downloader</b>. You can now send high-quality downloaded videos & audio directly to this channel.`;
+    const sendRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: targetChat,
+        text,
+        parse_mode: "HTML",
+        disable_web_page_preview: true
+      })
+    });
+    const sendData = await sendRes.json();
+    if (!sendData.ok) {
+      return safeJson(res, 400, {
+        error: `Telegram error: ${sendData.description || 'Could not send test message'}. Make sure the bot has 'Post Messages' permission in the channel.`
+      });
+    }
+
+    safeJson(res, 200, {
+      success: true,
+      message: `Test message posted to channel successfully! Check your Telegram channel.`,
+      messageId: sendData.result?.message_id
+    });
+  } catch (err: any) {
+    safeJson(res, 500, { error: `Failed to send test message: ${err.message}` });
+  }
+});
+
+// POST /api/telegram/send (Send video/audio to Telegram Channel)
+app.post("/api/telegram/send", async (req, res) => {
+  const saved = getSavedTelegramConfig();
+  const { taskId, filePath, downloadUrl, caption, customChatId } = req.body || {};
+
+  const token = saved?.botToken;
+  const rawTargetChat = customChatId || saved?.chatId;
+  const targetChat = sanitizeTelegramChatId(rawTargetChat || "");
+
+  if (!token || !targetChat) {
+    return safeJson(res, 400, {
+      error: "Telegram is not configured. Please set your Telegram Bot Token and Channel ID in Settings → Telegram Channel."
+    });
+  }
+
+  // Resolve effective task ID
+  let resolvedId = taskId;
+  if (!resolvedId && downloadUrl && typeof downloadUrl === "string") {
+    const match = downloadUrl.match(/\/api\/file\/([a-zA-Z0-9_-]+)/);
+    if (match) resolvedId = match[1];
+  }
+
+  // Locate the file on disk
+  let diskFile = "";
+  let taskTitle = "";
+  if (resolvedId && activeTasks.has(resolvedId)) {
+    const t = activeTasks.get(resolvedId)!;
+    diskFile = t.filepath || t.filePath || "";
+    taskTitle = t.title || t.filename || "";
+  }
+
+  if (!diskFile || !fs.existsSync(diskFile)) {
+    if (filePath && fs.existsSync(filePath)) {
+      diskFile = filePath;
+    } else if (resolvedId && fs.existsSync(TEMP_DIR)) {
+      const candidates = fs.readdirSync(TEMP_DIR).filter(f => f.includes(resolvedId.slice(0, 8)));
+      if (candidates.length > 0) {
+        diskFile = path.join(TEMP_DIR, candidates[0]);
+      }
+    }
+  }
+
+  if (!diskFile || !fs.existsSync(diskFile)) {
+    return safeJson(res, 404, { error: "Media file not found on server or expired. Please re-download the video." });
+  }
+
+  try {
+    const stats = fs.statSync(diskFile);
+    const sizeMb = stats.size / (1024 * 1024);
+    const ext = path.extname(diskFile).toLowerCase();
+    const isAudio = [".mp3", ".m4a", ".wav", ".flac", ".ogg"].includes(ext);
+    const filename = path.basename(diskFile);
+    const postCaption = (caption || taskTitle || filename).slice(0, 1000);
+
+    // If file is <= 50 MB, upload directly using Telegram sendVideo / sendAudio
+    if (stats.size <= 50 * 1024 * 1024) {
+      const fileBuffer = fs.readFileSync(diskFile);
+      const fileBlob = new Blob([fileBuffer]);
+
+      const formData = new FormData();
+      formData.append("chat_id", targetChat);
+      formData.append("caption", `🎬 <b>${postCaption}</b>\n\n⚡ Downloaded via <i>FluxLoad</i>`);
+      formData.append("parse_mode", "HTML");
+
+      let method = "sendVideo";
+      if (isAudio) {
+        method = "sendAudio";
+        formData.append("audio", fileBlob, filename);
+      } else {
+        formData.append("supports_streaming", "true");
+        formData.append("video", fileBlob, filename);
+      }
+
+      const uploadRes = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+        method: "POST",
+        body: formData,
+      });
+
+      const uploadData = await uploadRes.json();
+      if (!uploadData.ok) {
+        return safeJson(res, 400, {
+          error: `Telegram upload failed: ${uploadData.description || 'Unknown error'}. Check bot permissions in channel.`
+        });
+      }
+
+      const messageId = uploadData.result?.message_id;
+      let channelPostUrl = "";
+      if (targetChat.startsWith("@")) {
+        channelPostUrl = `https://t.me/${targetChat.replace('@', '')}/${messageId}`;
+      } else {
+        channelPostUrl = `https://t.me/c/${targetChat.replace('-100', '')}/${messageId}`;
+      }
+
+      return safeJson(res, 200, {
+        success: true,
+        messageId,
+        channelPostUrl,
+        channelTitle: saved?.channelTitle || targetChat,
+        fileSizeMb: parseFloat(sizeMb.toFixed(1)),
+        message: `Successfully posted to ${saved?.channelTitle || targetChat}!`
+      });
+    } else {
+      // File > 50MB (exceeds Telegram Bot API 50MB limit)
+      const hostUrl = req.get("host") || "ais-pre-iadmvxsjcvmxle664s7hd4-634228146758.asia-southeast1.run.app";
+      const protocol = req.protocol === "http" && !req.get("x-forwarded-proto") ? "http" : "https";
+      const downloadLink = `${protocol}://${hostUrl}/api/download/${taskId}`;
+
+      const cardText = `🎬 <b>${postCaption}</b>\n\n` +
+        `📦 <b>File Size:</b> ${sizeMb.toFixed(1)} MB (Large File)\n` +
+        `⚡ <b>Direct Download Link:</b>\n<a href="${downloadLink}">👉 Click to Stream / Download Video</a>\n\n` +
+        `<i>Shared via FluxLoad High-Speed Media Downloader</i>`;
+
+      const msgRes = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: targetChat,
+          text: cardText,
+          parse_mode: "HTML",
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: "⬇️ Download Video (Direct)", url: downloadLink }]
+            ]
+          }
+        })
+      });
+      const msgData = await msgRes.json();
+
+      const shareUrl = `https://t.me/share/url?url=${encodeURIComponent(downloadLink)}&text=${encodeURIComponent(postCaption)}`;
+
+      return safeJson(res, 200, {
+        success: true,
+        fileSizeMb: parseFloat(sizeMb.toFixed(1)),
+        warning: `File size is ${sizeMb.toFixed(1)} MB (Telegram Bot direct upload limit is 50MB). A streaming and download card was posted to your channel!`,
+        shareUrl,
+        channelPostUrl: targetChat.startsWith("@") && msgData.result?.message_id ? `https://t.me/${targetChat.replace('@', '')}/${msgData.result.message_id}` : undefined,
+        channelTitle: saved?.channelTitle || targetChat
+      });
+    }
+  } catch (err: any) {
+    safeJson(res, 500, { error: `Failed to send media to Telegram: ${err.message}` });
+  }
+});
+
+// DELETE /api/telegram/config
+app.delete("/api/telegram/config", (req, res) => {
+  try {
+    if (fs.existsSync(TELEGRAM_CONFIG_PATH)) fs.unlinkSync(TELEGRAM_CONFIG_PATH);
+    if (fs.existsSync(TELEGRAM_SAVED_PATH)) fs.unlinkSync(TELEGRAM_SAVED_PATH);
+    safeJson(res, 200, { success: true, message: "Telegram configuration removed." });
+  } catch (err: any) {
+    safeJson(res, 500, { error: `Failed to delete config: ${err.message}` });
+  }
+});
+
 async function startServer() {
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {

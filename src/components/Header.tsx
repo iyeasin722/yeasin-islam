@@ -18,6 +18,7 @@ import {
   Film,
   ListPlus,
   Sparkles,
+  Send,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { AppNavMode } from '../types';
@@ -28,7 +29,7 @@ interface HeaderProps {
   onLogin: () => void;
   onLogout: () => void;
   onOpenHistory: () => void;
-  onOpenSettings: (tab?: 'general' | 'cookies' | 'diagnostics') => void;
+  onOpenSettings: (tab?: 'general' | 'cookies' | 'diagnostics' | 'telegram') => void;
   onOpenMobileGuide?: () => void;
   historyCount: number;
   currentMode?: AppNavMode;
@@ -338,6 +339,17 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="sm:hidden text-[10px]">ফোন</span>
             </button>
           )}
+
+          {/* Telegram Channel Button */}
+          <button
+            onClick={() => onOpenSettings('telegram')}
+            className="flex items-center space-x-1.5 px-2.5 py-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-300 border border-sky-500/30 rounded-lg text-xs font-semibold transition-colors shadow-sm cursor-pointer"
+            title="টেলিগ্রাম চ্যানেল কানেক্ট ও অটো-পোস্ট (Telegram Channel & Bot)"
+          >
+            <Send className="w-3.5 h-3.5 text-sky-400" />
+            <span className="hidden sm:inline">Telegram</span>
+            <span className="sm:hidden text-[10px]">টেলিগ্রাম</span>
+          </button>
 
           {/* Settings Button */}
           <button

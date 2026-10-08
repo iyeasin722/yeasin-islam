@@ -136,6 +136,26 @@ export interface BatchSettings {
   autoTriggerBrowserDownload: boolean;
 }
 
+export interface TelegramConfig {
+  botToken?: string;
+  chatId?: string;
+  channelName?: string;
+  channelTitle?: string;
+  botUsername?: string;
+  autoSendCompleted?: boolean;
+}
+
+export interface TelegramSendResult {
+  success: boolean;
+  messageId?: number;
+  channelPostUrl?: string;
+  channelTitle?: string;
+  fileSizeMb?: number;
+  warning?: string;
+  shareUrl?: string;
+  error?: string;
+}
+
 export interface FluxLoadSettings {
   defaultType: DownloadType;
   defaultQuality: VideoQuality;
@@ -150,6 +170,7 @@ export interface FluxLoadSettings {
   maxFileSizeGb: number;
   bdixFirstSpeed: boolean;
   defaultRateLimit?: string; // 'unlimited' | '1M' | '2M' | '5M' | '10M'
+  telegram?: TelegramConfig;
 }
 
 export const DEFAULT_SETTINGS: FluxLoadSettings = {

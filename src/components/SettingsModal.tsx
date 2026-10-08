@@ -32,6 +32,11 @@ import {
   Trash2,
   Globe,
   Key,
+  Send,
+  Tv,
+  Bot,
+  Share2,
+  HelpCircle,
 } from 'lucide-react';
 import { FluxLoadSettings, DEFAULT_SETTINGS, VideoQuality, VideoFormatChoice, DownloadType, CookieStatus } from '../types';
 import { soundNotify } from '../lib/soundNotify';
@@ -77,7 +82,7 @@ interface SettingsModalProps {
   settings: FluxLoadSettings;
   onUpdateSettings: (newSettings: Partial<FluxLoadSettings>) => void;
   onResetSettings: () => void;
-  initialTab?: 'general' | 'cookies' | 'diagnostics';
+  initialTab?: 'general' | 'cookies' | 'diagnostics' | 'telegram';
   initialPlatform?: string;
 }
 
@@ -90,7 +95,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   initialTab = 'general',
   initialPlatform,
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'cookies' | 'diagnostics'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'general' | 'cookies' | 'diagnostics' | 'telegram'>(initialTab);
+
+  // Telegram Integration State
+  const [telegramConfig, setTelegramConfig] = useState<{
+    configured: boolean;
+    botTokenMasked?: string;
+    chatId?: string;
+    channelTitle?: string;
+    botUsername?: string;
+    autoSend?: boolean;
+  } | null>(null);
+  const [tgBotToken, setTgBotToken] = useState('');
+  const [tgChatId, setTgChatId] = useState('');
+  const [isTgSaving, setIsTgSaving] = useState(false);
+  const [isTgTesting, setIsTgTesting] = useState(false);
+  const [tgMsg, setTgMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [showTgGuide, setShowTgGuide] = useState(false);
 
   // Cookie State
   const [cookieStatus, setCookieStatus] = useState<CookieStatus | null>(null);
@@ -161,10 +182,24 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   }, []);
 
+  const fetchTelegramConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/telegram/config');
+      if (res.ok) {
+        const data = await res.json();
+        setTelegramConfig(data);
+        if (data.chatId && !tgChatId) {
+          setTgChatId(data.chatId);
+        }
+      }
+    } catch {}
+  }, [tgChatId]);
+
   useEffect(() => {
     if (isOpen) {
       fetchCookieStatus();
       fetchDiagnostics();
+      fetchTelegramConfig();
       if (initialTab) {
         setActiveTab(initialTab);
       }
@@ -173,7 +208,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setActivePlatformModal(initialPlatform);
       }
     }
-  }, [isOpen, initialTab, initialPlatform, fetchCookieStatus, fetchDiagnostics]);
+  }, [isOpen, initialTab, initialPlatform, fetchCookieStatus, fetchDiagnostics, fetchTelegramConfig]);
 
   useEffect(() => {
     if (activeTab === 'diagnostics' && !diagnostics) {
@@ -420,6 +455,79 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
+  const handleSaveTelegram = async () => {
+    if (!tgBotToken.trim() || !tgChatId.trim()) {
+      setTgMsg({ type: 'error', text: 'Bot Token এবং Channel Username উভয়ই প্রদান করুন।' });
+      return;
+    }
+    setIsTgSaving(true);
+    setTgMsg(null);
+    try {
+      const res = await fetch('/api/telegram/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botToken: tgBotToken.trim(),
+          chatId: tgChatId.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTgMsg({ type: 'success', text: data.message || 'Telegram Bot সফলভাবে চ্যানেলে সংযুক্ত হয়েছে!' });
+        addToast('success', 'Telegram Connected', data.message || 'বট প্রস্তুত রয়েছে।');
+        setTgBotToken('');
+        fetchTelegramConfig();
+      } else {
+        setTgMsg({ type: 'error', text: data.error || 'টেলিগ্রাম বটের সাথে কানেক্ট করা যায়নি।' });
+        addToast('error', 'Connection Failed', data.error || 'বট পারমিশন চেক করুন।');
+      }
+    } catch (e: any) {
+      setTgMsg({ type: 'error', text: e.message || 'Network error' });
+    } finally {
+      setIsTgSaving(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    setIsTgTesting(true);
+    setTgMsg(null);
+    try {
+      const res = await fetch('/api/telegram/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botToken: tgBotToken.trim() || undefined,
+          chatId: tgChatId.trim() || undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setTgMsg({ type: 'success', text: data.message || 'টেস্ট মেসেজ চ্যানেলে সফলভাবে পাঠানো হয়েছে!' });
+        addToast('success', 'Test Message Sent', 'টেলিগ্রাম চ্যানেল চেক করে দেখুন।');
+      } else {
+        setTgMsg({ type: 'error', text: data.error || 'টেস্ট ব্যর্থ হয়েছে।' });
+        addToast('error', 'Test Failed', data.error || 'বটকে চ্যানেলে অ্যাডমিন পারমিশন দিন।');
+      }
+    } catch (e: any) {
+      setTgMsg({ type: 'error', text: e.message || 'Error executing test.' });
+    } finally {
+      setIsTgTesting(false);
+    }
+  };
+
+  const handleDeleteTelegram = async () => {
+    try {
+      const res = await fetch('/api/telegram/config', { method: 'DELETE' });
+      if (res.ok) {
+        addToast('info', 'Disconnected', 'টেলিগ্রাম কনফিগারেশন মুছে ফেলা হয়েছে।');
+        setTelegramConfig({ configured: false });
+        setTgChatId('');
+        setTgBotToken('');
+        setTgMsg(null);
+      }
+    } catch {}
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
       {/* Toast notifications container */}
@@ -496,6 +604,22 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/20 text-purple-300 font-mono font-bold">
                 v{diagnostics.ytdlp.version.split('.')[0]}
               </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('telegram')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'telegram'
+                ? 'bg-sky-500/20 text-sky-300 border border-sky-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+            }`}
+          >
+            <Send className="w-3.5 h-3.5 text-sky-400" />
+            <span>টেলিগ্রাম চ্যানেল</span>
+            {telegramConfig?.configured && (
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Telegram Bot Connected" />
             )}
           </button>
         </div>
@@ -1384,6 +1508,193 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </div>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* TAB 4: TELEGRAM CHANNEL INTEGRATION */}
+        {activeTab === 'telegram' && (
+          <div className="space-y-5 text-sm animate-fadeIn">
+            {/* Top Banner */}
+            <div className="bg-sky-950/40 border border-sky-500/30 p-4 rounded-2xl flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-sky-500/20 border border-sky-500/40 flex items-center justify-center text-sky-400 shrink-0 mt-0.5">
+                <Send className="w-5 h-5 fill-current/20" />
+              </div>
+              <div className="space-y-1">
+                <h4 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                  <span>Telegram Channel Integration (টেলিগ্রাম চ্যানেল)</span>
+                  {telegramConfig?.configured && (
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                      Connected
+                    </span>
+                  )}
+                </h4>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  ডাউনলোড হওয়া যেকোনো ভিডিও ও অডিও এক ক্লিকে সরাসরি আপনার টেলিগ্রাম চ্যানেলে পাঠাতে আপনার টেলিগ্রাম বট কানেক্ট করুন।
+                </p>
+              </div>
+            </div>
+
+            {/* Status Feedback Message */}
+            {tgMsg && (
+              <div
+                className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                  tgMsg.type === 'success'
+                    ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
+                    : 'bg-rose-950/40 border-rose-500/30 text-rose-300'
+                }`}
+              >
+                {tgMsg.text}
+              </div>
+            )}
+
+            {/* Configured State or Setup Form */}
+            {telegramConfig?.configured ? (
+              <div className="bg-slate-950/70 border border-slate-800 p-4 rounded-2xl space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-9 h-9 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400">
+                      <Tv className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                        <span>{telegramConfig.channelTitle}</span>
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      </div>
+                      <div className="text-[11px] text-slate-400 font-mono">
+                        {telegramConfig.chatId} {telegramConfig.botUsername ? `• @${telegramConfig.botUsername}` : ''}
+                      </div>
+                    </div>
+                  </div>
+                  <span className="text-[11px] font-mono text-slate-500">
+                    Token: {telegramConfig.botTokenMasked}
+                  </span>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 pt-1">
+                  <button
+                    type="button"
+                    onClick={handleTestTelegram}
+                    disabled={isTgTesting}
+                    className="py-2 px-3.5 bg-sky-500/20 hover:bg-sky-500/30 border border-sky-500/40 text-sky-300 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {isTgTesting ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Send className="w-3.5 h-3.5 text-sky-400" />
+                    )}
+                    <span>টেস্ট মেসেজ পাঠান (Test Post)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleDeleteTelegram}
+                    className="py-2 px-3 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 rounded-xl text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    ডিসকানেক্ট করুন (Remove Bot)
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="bg-slate-950/70 border border-slate-800 p-4 rounded-2xl space-y-3.5">
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-200 flex items-center gap-1">
+                    <Bot className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Telegram Bot Token:</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={tgBotToken}
+                    onChange={(e) => setTgBotToken(e.target.value)}
+                    placeholder="123456789:ABCdefGhIjklmNoPqRstUvwXyz..."
+                    className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none focus:border-sky-500"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    টেলিগ্রামের <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-sky-400 underline font-mono">@BotFather</a> থেকে পাওয়া বটের গোপন API Token
+                  </p>
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-slate-200 flex items-center gap-1">
+                    <Tv className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Channel Username বা Chat ID:</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={tgChatId}
+                    onChange={(e) => {
+                      const val = e.target.value.trim();
+                      const urlMatch = val.match(/(?:https?:\/\/)?(?:www\.)?(?:t\.me|telegram\.me)\/(?:s\/)?([a-zA-Z0-9_]+)/i);
+                      if (urlMatch && urlMatch[1] && !val.includes('/+')) {
+                        setTgChatId('@' + urlMatch[1]);
+                      } else {
+                        setTgChatId(e.target.value);
+                      }
+                    }}
+                    onBlur={() => {
+                      const val = tgChatId.trim();
+                      if (val && !val.startsWith('@') && !val.startsWith('-') && /^[a-zA-Z0-9_]{3,}$/.test(val)) {
+                        setTgChatId('@' + val);
+                      }
+                    }}
+                    placeholder="@crypto_mining_s_e_x অথবা -100123456789"
+                    className="w-full p-2.5 bg-slate-900 border border-slate-700 rounded-xl text-xs text-slate-100 placeholder:text-slate-600 font-mono focus:outline-none focus:border-sky-500"
+                  />
+                  <p className="text-[10px] text-slate-400">
+                    আপনার চ্যানেলের ইউজারনেম (যেমন: <code className="text-sky-300">@crypto_mining_s_e_x</code>) অথবা প্রাইভেট চ্যানেলের Chat ID
+                  </p>
+                </div>
+
+                <div className="flex items-center justify-between pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowTgGuide(!showTgGuide)}
+                    className="text-xs text-sky-400 hover:text-sky-300 flex items-center gap-1 font-medium transition cursor-pointer"
+                  >
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>{showTgGuide ? 'গাইড বন্ধ করুন' : 'কীভাবে বট তৈরি করবেন?'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSaveTelegram}
+                    disabled={isTgSaving || !tgBotToken.trim() || !tgChatId.trim()}
+                    className="py-2.5 px-4 bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    {isTgSaving ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Check className="w-3.5 h-3.5" />
+                    )}
+                    <span>কানেক্ট ও সেভ করুন</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Telegram Setup Guide */}
+            {(showTgGuide || !telegramConfig?.configured) && (
+              <div className="bg-slate-950/60 border border-slate-800 rounded-2xl p-4 text-xs text-slate-300 space-y-2">
+                <div className="font-bold text-sky-300 flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-sky-400" />
+                  <span>টেলিগ্রাম চ্যানেল কানেক্ট করার সহজ ৪টি ধাপ:</span>
+                </div>
+                <ol className="list-decimal pl-4 space-y-1.5 text-slate-400 text-[11px] leading-relaxed">
+                  <li>
+                    টেলিগ্রাম অ্যাপে <a href="https://t.me/BotFather" target="_blank" rel="noreferrer" className="text-sky-400 underline font-mono">@BotFather</a> সার্চ করে ওপেন করুন এবং <code className="text-amber-300">/newbot</code> লিখে সেন্ড করুন।
+                  </li>
+                  <li>
+                    বটের নাম ও ইউজারনেম দিন (শেষে bot থাকতে হবে)। BotFather আপনাকে একটি <span className="text-amber-300 font-bold">API Token</span> দেবে।
+                  </li>
+                  <li>
+                    আপনার টেলিগ্রাম চ্যানেলের সেটিংসে যান &rarr; <strong>Administrators</strong> &rarr; <strong>Add Admin</strong>-এ গিয়ে তৈরি করা বটটিকে অ্যাড করুন এবং <strong>Post Messages</strong> পারমিশন দিন।
+                  </li>
+                  <li>
+                    টোকেন এবং চ্যানেলের ইউজারনেম (যেমন: <code className="text-sky-300">@your_channel</code>) উপরের বক্সে দিয়ে <strong>"কানেক্ট ও সেভ করুন"</strong> বাটনে ক্লিক করুন।
+                  </li>
+                </ol>
+              </div>
+            )}
           </div>
         )}
 

@@ -13,7 +13,8 @@ import {
   Scissors,
   Bookmark,
   Sparkles,
-  Filter
+  Filter,
+  Send,
 } from 'lucide-react';
 
 export interface HistoryItem {
@@ -39,6 +40,7 @@ interface HistoryModalProps {
   onToggleFavorite?: (id: string) => void;
   onPlayMedia?: (url: string, title?: string, type?: 'video' | 'audio', taskId?: string) => void;
   onTrimMedia?: (taskId?: string, url?: string, title?: string) => void;
+  onSendToTelegram?: (item: HistoryItem) => void;
   isSignedIn?: boolean;
   onSignIn?: () => void;
 }
@@ -52,6 +54,7 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
   onToggleFavorite,
   onPlayMedia,
   onTrimMedia,
+  onSendToTelegram,
   isSignedIn,
   onSignIn,
 }) => {
@@ -267,6 +270,21 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                         title="রিংটোন কাটার (Trim Audio)"
                       >
                         <Scissors className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+
+                    {/* Send to Telegram Channel */}
+                    {onSendToTelegram && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          onClose();
+                          onSendToTelegram(item);
+                        }}
+                        className="p-2 bg-slate-800 hover:bg-sky-500/20 text-slate-300 hover:text-sky-300 border border-slate-700/80 rounded-xl text-xs transition cursor-pointer"
+                        title="টেলিগ্রাম চ্যানেলে পাঠান (Send to Telegram Channel)"
+                      >
+                        <Send className="w-3.5 h-3.5 text-sky-400" />
                       </button>
                     )}
 

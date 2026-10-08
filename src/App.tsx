@@ -14,6 +14,7 @@ import { MobileGuideModal } from './components/MobileGuideModal';
 import { SocialQuickMode } from './components/SocialQuickMode';
 import { AudioCutterModal } from './components/AudioCutterModal';
 import { MediaPlayerModal } from './components/MediaPlayerModal';
+import { TelegramExportModal } from './components/TelegramExportModal';
 import {
   VideoInfo,
   DownloadType,
@@ -85,13 +86,41 @@ export default function App() {
   });
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'cookies' | 'diagnostics'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'cookies' | 'diagnostics' | 'telegram'>('general');
   const [settingsPlatform, setSettingsPlatform] = useState<string | undefined>(undefined);
 
-  const handleOpenSettings = (tab: 'general' | 'cookies' | 'diagnostics' = 'general', platform?: string) => {
+  const handleOpenSettings = (
+    tab: 'general' | 'cookies' | 'diagnostics' | 'telegram' = 'general',
+    platform?: string
+  ) => {
     setSettingsTab(tab);
     setSettingsPlatform(platform);
     setIsSettingsOpen(true);
+  };
+
+  // Telegram Export state
+  const [isTelegramModalOpen, setIsTelegramModalOpen] = useState(false);
+  const [telegramExportParams, setTelegramExportParams] = useState<{
+    taskId?: string;
+    downloadUrl?: string;
+    title?: string;
+    thumbnail?: string;
+    fileSize?: string;
+    format?: string;
+    isAudio?: boolean;
+  }>({});
+
+  const handleOpenTelegramExport = (params: {
+    taskId?: string;
+    downloadUrl?: string;
+    title?: string;
+    thumbnail?: string;
+    fileSize?: string;
+    format?: string;
+    isAudio?: boolean;
+  }) => {
+    setTelegramExportParams(params);
+    setIsTelegramModalOpen(true);
   };
 
   const handleUpdateSettings = (updates: Partial<FluxLoadSettings>) => {
@@ -1092,6 +1121,8 @@ export default function App() {
               onModeChange={(m) => setAppMode(m)}
               settings={settings}
               onOpenSettings={(platform) => handleOpenSettings('cookies', platform)}
+              onOpenTelegramExport={handleOpenTelegramExport}
+              onOpenTelegramSettings={() => handleOpenSettings('telegram')}
               onOpenAudioCutter={handleOpenAudioCutter}
               onOpenMediaPlayer={handleOpenMediaPlayer}
               onPauseSingle={handlePauseSingle}
@@ -1237,6 +1268,15 @@ export default function App() {
           onToggleFavorite={handleToggleFavorite}
           onPlayMedia={handleOpenMediaPlayer}
           onTrimMedia={(taskId, url, title) => handleOpenAudioCutter(taskId, url, title)}
+          onSendToTelegram={(item) =>
+            handleOpenTelegramExport({
+              taskId: item.taskId,
+              downloadUrl: item.downloadUrl,
+              title: item.title,
+              format: item.format,
+              isAudio: item.type === 'audio',
+            })
+          }
           onSelectUrl={(url) => {
             setAppMode('single');
             handleStartSingleDownload(url, {
@@ -1247,6 +1287,21 @@ export default function App() {
           }}
           isSignedIn={!!user}
           onSignIn={handleLogin}
+        />
+      )}
+
+      {/* Telegram Channel Export Modal */}
+      {isTelegramModalOpen && (
+        <TelegramExportModal
+          isOpen={isTelegramModalOpen}
+          onClose={() => setIsTelegramModalOpen(false)}
+          taskId={telegramExportParams.taskId}
+          downloadUrl={telegramExportParams.downloadUrl}
+          title={telegramExportParams.title}
+          thumbnail={telegramExportParams.thumbnail}
+          fileSize={telegramExportParams.fileSize}
+          format={telegramExportParams.format}
+          isAudio={telegramExportParams.isAudio}
         />
       )}
 
