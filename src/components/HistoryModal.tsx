@@ -15,6 +15,9 @@ import {
   Sparkles,
   Filter,
   Send,
+  Cloud,
+  Loader2,
+  CheckCircle2,
 } from 'lucide-react';
 
 export interface HistoryItem {
@@ -41,6 +44,8 @@ interface HistoryModalProps {
   onPlayMedia?: (url: string, title?: string, type?: 'video' | 'audio', taskId?: string) => void;
   onTrimMedia?: (taskId?: string, url?: string, title?: string) => void;
   onSendToTelegram?: (item: HistoryItem) => void;
+  onExportAllData?: () => void;
+  onSyncAllData?: () => Promise<{ success: boolean; syncedItemsCount: number; error?: string }>;
   isSignedIn?: boolean;
   onSignIn?: () => void;
 }
@@ -55,11 +60,30 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
   onPlayMedia,
   onTrimMedia,
   onSendToTelegram,
+  onExportAllData,
+  onSyncAllData,
   isSignedIn,
   onSignIn,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeFilter, setActiveFilter] = useState<'all' | 'favorites' | 'youtube' | 'tiktok' | 'instagram' | 'audio' | 'video'>('all');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncDoneMsg, setSyncDoneMsg] = useState<string | null>(null);
+
+  const handleSyncClick = async () => {
+    if (!onSyncAllData) return;
+    setIsSyncing(true);
+    setSyncDoneMsg(null);
+    try {
+      const res = await onSyncAllData();
+      if (res.success) {
+        setSyncDoneMsg(`সিঙ্ক সম্পন্ন! (${res.syncedItemsCount}টি আইটেম)`);
+        setTimeout(() => setSyncDoneMsg(null), 4000);
+      }
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   const filteredHistory = useMemo(() => {
     return history.filter((item) => {
@@ -107,12 +131,50 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
               <p className="text-xs text-slate-400">ডাউনলোড হিস্টোরি ও বুকমার্ক করা মিডিয়া</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            {syncDoneMsg && (
+              <span className="text-xs text-emerald-400 font-medium flex items-center gap-1 bg-emerald-950/60 px-2.5 py-1 rounded-lg border border-emerald-500/30">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                {syncDoneMsg}
+              </span>
+            )}
+
+            {isSignedIn && onSyncAllData && (
+              <button
+                type="button"
+                onClick={handleSyncClick}
+                disabled={isSyncing}
+                className="py-1.5 px-3 bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+                title="সব ডাটা ক্লাউডে সিঙ্ক ও সেভ করুন"
+              >
+                {isSyncing ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin text-emerald-400" />
+                ) : (
+                  <Cloud className="w-3.5 h-3.5 text-emerald-400" />
+                )}
+                <span className="hidden sm:inline">Sync Cloud</span>
+              </button>
+            )}
+
+            {onExportAllData && (
+              <button
+                type="button"
+                onClick={onExportAllData}
+                className="py-1.5 px-3 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 hover:text-cyan-300 rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition cursor-pointer"
+                title="সব ডাটা ব্যাকআপ ডাউনলোড করুন (Export JSON)"
+              >
+                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                <span className="hidden sm:inline">Backup</span>
+              </button>
+            )}
+
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800 transition cursor-pointer"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Search & Filter Bar */}
@@ -238,6 +300,16 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
                         <Calendar className="w-3 h-3" />
                         {new Date(item.createdAt).toLocaleDateString()} {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                       </span>
+                      <a
+                        href="https://t.me/FluxLoad"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-sky-400 hover:text-sky-300 font-mono font-bold hover:underline ml-1"
+                        title="Official Telegram Channel: https://t.me/FluxLoad"
+                      >
+                        <Send className="w-2.5 h-2.5" />
+                        https://t.me/FluxLoad
+                      </a>
                     </div>
                   </div>
 
@@ -316,6 +388,31 @@ export const HistoryModal: React.FC<HistoryModalProps> = ({
               );
             })
           )}
+        </div>
+
+        {/* Official Telegram Channel Link Under Downloaded Videos */}
+        <div className="px-6 py-2.5 bg-gradient-to-r from-sky-950/40 via-slate-900 to-sky-950/40 border-t border-sky-500/30 flex items-center justify-between gap-2">
+          <div className="flex items-center space-x-2 text-xs">
+            <Send className="w-3.5 h-3.5 text-sky-400" />
+            <span className="font-semibold text-slate-300">Telegram Channel:</span>
+            <a
+              href="https://t.me/FluxLoad"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-sky-400 hover:text-sky-300 font-mono font-bold hover:underline"
+            >
+              https://t.me/FluxLoad
+            </a>
+          </div>
+          <a
+            href="https://t.me/FluxLoad"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold transition-all shrink-0 flex items-center gap-1 shadow-sm"
+          >
+            <Send className="w-3 h-3" />
+            <span>Join</span>
+          </a>
         </div>
 
         {/* Footer */}

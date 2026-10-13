@@ -37,10 +37,19 @@ import {
   Bot,
   Share2,
   HelpCircle,
+  Database,
+  Save,
+  Download,
+  Cloud,
+  Plus,
+  Radio,
+  AtSign,
 } from 'lucide-react';
+import { User } from 'firebase/auth';
 import { FluxLoadSettings, DEFAULT_SETTINGS, VideoQuality, VideoFormatChoice, DownloadType, CookieStatus } from '../types';
 import { soundNotify } from '../lib/soundNotify';
 import { ToastContainer, ToastData } from './Toast';
+import { TelegramHealthDashboard } from './TelegramHealthDashboard';
 
 interface DiagnosticsData {
   ytdlp: {
@@ -82,8 +91,13 @@ interface SettingsModalProps {
   settings: FluxLoadSettings;
   onUpdateSettings: (newSettings: Partial<FluxLoadSettings>) => void;
   onResetSettings: () => void;
-  initialTab?: 'general' | 'cookies' | 'diagnostics' | 'telegram';
+  initialTab?: 'general' | 'cookies' | 'diagnostics' | 'telegram' | 'data';
   initialPlatform?: string;
+  user?: User | null;
+  history?: any[];
+  onSyncAllData?: () => Promise<{ success: boolean; syncedItemsCount: number; error?: string }>;
+  onExportAllData?: () => void;
+  onImportAllData?: (jsonStr: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -94,8 +108,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onResetSettings,
   initialTab = 'general',
   initialPlatform,
+  user,
+  history = [],
+  onSyncAllData,
+  onExportAllData,
+  onImportAllData,
 }) => {
-  const [activeTab, setActiveTab] = useState<'general' | 'cookies' | 'diagnostics' | 'telegram'>(initialTab);
+  const [activeTab, setActiveTab] = useState<'general' | 'cookies' | 'diagnostics' | 'telegram' | 'data'>(initialTab);
+  const [isSyncingAll, setIsSyncingAll] = useState(false);
+  const [syncFeedback, setSyncFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [importJsonText, setImportJsonText] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
 
   // Telegram Integration State
   const [telegramConfig, setTelegramConfig] = useState<{
@@ -103,14 +126,23 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     botTokenMasked?: string;
     chatId?: string;
     channelTitle?: string;
+    channels?: Array<{ chatId: string; channelTitle?: string; enabled?: boolean }>;
+    channelCount?: number;
+    activeChannelCount?: number;
     botUsername?: string;
     autoSend?: boolean;
+    removeSizeLimit?: boolean;
+    maxUploadGb?: number;
+    uploadDeliveryMode?: 'smart_10gb' | 'direct_50mb' | 'local_2gb';
+    localApiServerUrl?: string;
   } | null>(null);
+  const [newChannelInput, setNewChannelInput] = useState('');
+  const [isAddingChannel, setIsAddingChannel] = useState(false);
   const [tgBotToken, setTgBotToken] = useState('');
   const [tgChatId, setTgChatId] = useState('');
   const [isTgSaving, setIsTgSaving] = useState(false);
   const [isTgTesting, setIsTgTesting] = useState(false);
-  const [tgMsg, setTgMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [tgMsg, setTgMsg] = useState<{ type: 'success' | 'error' | 'warning'; text: string } | null>(null);
   const [showTgGuide, setShowTgGuide] = useState(false);
 
   // Cookie State
@@ -455,7 +487,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const handleSaveTelegram = async () => {
+  const handleSaveTelegram = async (forceDirect = false) => {
     if (!tgBotToken.trim() || !tgChatId.trim()) {
       setTgMsg({ type: 'error', text: 'Bot Token এবং Channel Username উভয়ই প্রদান করুন।' });
       return;
@@ -469,17 +501,33 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         body: JSON.stringify({
           botToken: tgBotToken.trim(),
           chatId: tgChatId.trim(),
+          forceSave: forceDirect,
         }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setTgMsg({ type: 'success', text: data.message || 'Telegram Bot সফলভাবে চ্যানেলে সংযুক্ত হয়েছে!' });
-        addToast('success', 'Telegram Connected', data.message || 'বট প্রস্তুত রয়েছে।');
+        if (data.isWarning) {
+          setTgMsg({ type: 'warning', text: data.message });
+          addToast('warning', 'Data Saved', 'বট ও চ্যানেলের সকল তথ্য সফলভাবে সেভ হয়েছে!');
+        } else {
+          setTgMsg({ type: 'success', text: data.message || 'Telegram Bot সফলভাবে চ্যানেলে সংযুক্ত হয়েছে!' });
+          addToast('success', 'Telegram Connected', data.message || 'বট প্রস্তুত রয়েছে।');
+        }
+        // Save local copy for backup
+        try {
+          localStorage.setItem('fluxload_telegram_config', JSON.stringify({
+            chatId: data.chatId || tgChatId.trim(),
+            channelTitle: data.channelTitle,
+            botUsername: data.botUsername,
+            configured: true,
+            savedAt: new Date().toISOString(),
+          }));
+        } catch {}
         setTgBotToken('');
         fetchTelegramConfig();
       } else {
         setTgMsg({ type: 'error', text: data.error || 'টেলিগ্রাম বটের সাথে কানেক্ট করা যায়নি।' });
-        addToast('error', 'Connection Failed', data.error || 'বট পারমিশন চেক করুন।');
+        addToast('error', 'Connection Notice', data.error || 'বট পারমিশন চেক করুন।');
       }
     } catch (e: any) {
       setTgMsg({ type: 'error', text: e.message || 'Network error' });
@@ -497,13 +545,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           botToken: tgBotToken.trim() || undefined,
-          chatId: tgChatId.trim() || undefined,
+          allChannels: true,
         }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setTgMsg({ type: 'success', text: data.message || 'টেস্ট মেসেজ চ্যানেলে সফলভাবে পাঠানো হয়েছে!' });
-        addToast('success', 'Test Message Sent', 'টেলিগ্রাম চ্যানেল চেক করে দেখুন।');
+        const detailLines = data.results
+          ? data.results.map((r: any) => `${r.success ? '✅' : '❌'} ${r.channelTitle || r.targetChat}: ${r.success ? 'সফল' : (r.error || 'ব্যর্থ')}`).join('\n')
+          : '';
+        const msgText = detailLines ? `${data.message}\n\n${detailLines}` : data.message;
+        setTgMsg({ type: 'success', text: msgText });
+        addToast('success', 'Test Message Sent 🚀', data.message || 'সকল চ্যানেলে টেস্ট মেসেজ পাঠানো হয়েছে।');
       } else {
         setTgMsg({ type: 'error', text: data.error || 'টেস্ট ব্যর্থ হয়েছে।' });
         addToast('error', 'Test Failed', data.error || 'বটকে চ্যানেলে অ্যাডমিন পারমিশন দিন।');
@@ -528,6 +580,222 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     } catch {}
   };
 
+  const handleSaveTelegramPreferences = async (prefs: {
+    maxUploadGb: number;
+    uploadDeliveryMode: 'smart_10gb' | 'direct_50mb' | 'local_2gb';
+    localApiServerUrl?: string;
+  }) => {
+    try {
+      const res = await fetch('/api/telegram/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botToken: tgBotToken.trim() || 'configured',
+          chatId: telegramConfig?.chatId || tgChatId.trim() || '@channel',
+          maxUploadGb: prefs.maxUploadGb,
+          uploadDeliveryMode: prefs.uploadDeliveryMode,
+          localApiServerUrl: prefs.localApiServerUrl,
+          forceSave: true,
+        }),
+      });
+      if (res.ok) {
+        addToast('success', '10 GB Settings Saved', 'টেলিগ্রাম ১০ জিবি আপলোড কনফিগারেশন সফলভাবে সেভ হয়েছে।');
+        fetchTelegramConfig();
+      }
+    } catch (e: any) {
+      addToast('error', 'Error Saving Preferences', e.message);
+    }
+  };
+
+  const handleAddChannel = async () => {
+    if (!newChannelInput.trim()) return;
+    setIsAddingChannel(true);
+    try {
+      const res = await fetch('/api/telegram/channels/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: newChannelInput.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setNewChannelInput('');
+        addToast('success', 'চ্যানেল যুক্ত হয়েছে 📡', data.message);
+        if (data.channels) {
+          setTelegramConfig((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  channels: data.channels,
+                  channelCount: data.channels.length,
+                  activeChannelCount: data.channels.filter((c: any) => c.enabled !== false).length,
+                }
+              : prev
+          );
+        }
+      } else {
+        addToast('error', 'চ্যানেল যুক্ত করা যায়নি', data.error || 'চ্যানেলটি সঠিক কিনা চেক করুন।');
+      }
+    } catch (e: any) {
+      addToast('error', 'Error', e.message);
+    } finally {
+      setIsAddingChannel(false);
+    }
+  };
+
+  const handleRemoveChannel = async (targetChatId: string) => {
+    try {
+      const res = await fetch('/api/telegram/channels/remove', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: targetChatId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('info', 'চ্যানেল সরানো হয়েছে', data.message);
+        if (data.channels) {
+          setTelegramConfig((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  channels: data.channels,
+                  channelCount: data.channels.length,
+                  activeChannelCount: data.channels.filter((c: any) => c.enabled !== false).length,
+                }
+              : prev
+          );
+        }
+      } else {
+        addToast('error', 'Error', data.error || 'চ্যানেল সরানো যায়নি');
+      }
+    } catch (e: any) {
+      addToast('error', 'Error', e.message);
+    }
+  };
+
+  const handleToggleChannel = async (targetChatId: string, currentEnabled: boolean) => {
+    try {
+      const res = await fetch('/api/telegram/channels/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chatId: targetChatId, enabled: !currentEnabled }),
+      });
+      const data = await res.json();
+      if (res.ok && data.channels) {
+        setTelegramConfig((prev) =>
+          prev
+            ? {
+                ...prev,
+                channels: data.channels,
+                channelCount: data.channels.length,
+                activeChannelCount: data.channels.filter((c: any) => c.enabled !== false).length,
+              }
+            : prev
+        );
+      }
+    } catch {}
+  };
+
+  const handlePerformSync = async () => {
+    if (!onSyncAllData) return;
+    setIsSyncingAll(true);
+    setSyncFeedback(null);
+    try {
+      const res = await onSyncAllData();
+      if (res.success) {
+        setSyncFeedback({
+          type: 'success',
+          message: `সফলভাবে ক্লাউডে সব ডাটা সেভ হয়েছে! (${res.syncedItemsCount}টি আইটেম ও সেটিংস সিঙ্ক সম্পন্ন)`,
+        });
+        addToast('success', 'Data Saved', 'সব ডাটা সফলভাবে ক্লাউডে সংরক্ষিত হয়েছে।');
+      } else {
+        setSyncFeedback({
+          type: 'error',
+          message: res.error || 'ক্লাউড সিঙ্ক সম্পন্ন করা যায়নি।',
+        });
+        addToast('error', 'Sync Failed', res.error || 'সিঙ্ক ব্যর্থ হয়েছে');
+      }
+    } catch (err: any) {
+      setSyncFeedback({ type: 'error', message: err.message || 'Error syncing data' });
+    } finally {
+      setIsSyncingAll(false);
+    }
+  };
+
+  const handleSaveAllDataNow = async () => {
+    setIsSyncingAll(true);
+    setSyncFeedback(null);
+    try {
+      // 1. Commit settings to localStorage
+      onUpdateSettings({});
+
+      // 2. Persist Telegram config to localStorage if active
+      let tgData = telegramConfig;
+      if (!tgData?.configured && tgChatId) {
+        tgData = { configured: true, chatId: tgChatId, channelTitle: tgChatId };
+      }
+      try {
+        localStorage.setItem('fluxload_settings', JSON.stringify(settings));
+        localStorage.setItem('fluxload_download_history', JSON.stringify(history));
+        if (tgData) {
+          localStorage.setItem('fluxload_telegram_config', JSON.stringify(tgData));
+        }
+      } catch {}
+
+      // 3. Cloud sync if logged in
+      let cloudMsg = '';
+      if (user && onSyncAllData) {
+        const cRes = await onSyncAllData();
+        if (cRes.success) {
+          cloudMsg = ` এবং ক্লাউডে ${cRes.syncedItemsCount}টি রেকর্ড সিঙ্ক সম্পন্ন!`;
+        }
+      }
+
+      // 4. Trigger JSON backup download
+      if (onExportAllData) {
+        onExportAllData();
+      }
+
+      setSyncFeedback({
+        type: 'success',
+        message: `সব ডাটা সফলভাবে সেভ হয়েছে (All Data Saved)! সেটিংস, হিস্টোরি ও টেলিগ্রাম ব্যাকআপ ফাইল ডাউনলোড হয়েছে${cloudMsg}`,
+      });
+      addToast('success', 'All Data Saved', 'আপনার সব ডাটা সম্পূর্ণভাবে সংরক্ষিত হয়েছে!');
+    } catch (err: any) {
+      setSyncFeedback({
+        type: 'error',
+        message: `ডাটা সেভ করতে সমস্যা হয়েছে: ${err.message}`,
+      });
+    } finally {
+      setIsSyncingAll(false);
+    }
+  };
+
+  const handleFileImport = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const content = event.target?.result as string;
+      if (onImportAllData && content) {
+        setIsImporting(true);
+        try {
+          const res = await onImportAllData(content);
+          if (res.success) {
+            addToast('success', 'Backup Restored', 'ব্যাকআপ থেকে সব ডাটা সফলভাবে ফিরিয়ে আনা হয়েছে!');
+            setSyncFeedback({ type: 'success', message: 'সব ডাটা সফলভাবে রিস্টোর হয়েছে!' });
+          } else {
+            addToast('error', 'Restore Failed', res.error || 'রিস্টোর করা যায়নি।');
+            setSyncFeedback({ type: 'error', message: res.error || 'Invalid backup file' });
+          }
+        } finally {
+          setIsImporting(false);
+        }
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-fadeIn">
       {/* Toast notifications container */}
@@ -540,12 +808,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {/* Header */}
         <div className="flex items-center justify-between pb-4 mb-5 border-b border-slate-800">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-cyan-500/10 border border-cyan-500/20 flex items-center justify-center text-cyan-400">
-              <Settings className="w-5 h-5" />
+            <div className="w-10 h-10 rounded-xl overflow-hidden border border-orange-500/40 shadow-md shadow-orange-500/20 bg-black shrink-0">
+              <img
+                src="/logo.jpg"
+                alt="FluxLoad"
+                className="w-full h-full object-cover"
+              />
             </div>
             <div>
               <h3 className="text-lg font-bold text-slate-100 tracking-tight flex items-center gap-2">
                 FluxLoad System Settings
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-300 font-medium border border-amber-500/20">
+                  power by YEASIN
+                </span>
               </h3>
               <p className="text-xs text-slate-400">Preferences, authentication cookies & engine diagnostics</p>
             </div>
@@ -621,6 +896,19 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {telegramConfig?.configured && (
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" title="Telegram Bot Connected" />
             )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('data')}
+            className={`flex-1 flex items-center justify-center gap-1.5 py-2 px-3 rounded-xl text-xs font-semibold transition-all ${
+              activeTab === 'data'
+                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+            }`}
+          >
+            <Database className="w-3.5 h-3.5 text-emerald-400" />
+            <span>সব ডাটা সেভ</span>
           </button>
         </div>
 
@@ -840,7 +1128,96 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               </div>
             </div>
 
-            {/* 4. Batch Settings */}
+            {/* 4. Smart Retry for Network Errors */}
+            <div className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-2xl space-y-3.5 transition-all">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                  <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${settings.smartRetryEnabled !== false ? 'animate-spin-slow' : ''}`} />
+                  Smart Retry (নেটওয়ার্ক এরর অটো-রীট্রাই)
+                </span>
+                <span
+                  className={`text-[11px] px-2.5 py-0.5 rounded-full border font-semibold flex items-center gap-1 ${
+                    settings.smartRetryEnabled !== false
+                      ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                      : 'bg-slate-800 border-slate-700 text-slate-400'
+                  }`}
+                >
+                  {settings.smartRetryEnabled !== false ? 'Active' : 'Disabled'}
+                </span>
+              </div>
+
+              {/* Enable / Disable Toggle */}
+              <div className="flex items-center justify-between py-1">
+                <div className="pr-4">
+                  <span className="text-xs font-semibold text-slate-200 block">
+                    Automatic Network Error Recovery
+                  </span>
+                  <span className="text-[11px] text-slate-400 leading-relaxed block mt-0.5">
+                    Automatically recovers and retries downloads when interrupted by temporary socket timeouts, Wi-Fi blips, or server disconnections without restarting from scratch.
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdateSettings({
+                      smartRetryEnabled: settings.smartRetryEnabled === false ? true : false,
+                    })
+                  }
+                  className={`w-11 h-6 rounded-full transition-colors relative shrink-0 cursor-pointer ${
+                    settings.smartRetryEnabled !== false ? 'bg-amber-500' : 'bg-slate-800'
+                  }`}
+                  title={settings.smartRetryEnabled !== false ? 'Disable Smart Retry' : 'Enable Smart Retry'}
+                >
+                  <div
+                    className={`w-4 h-4 rounded-full bg-white transition-transform ${
+                      settings.smartRetryEnabled !== false ? 'translate-x-6' : 'translate-x-1'
+                    }`}
+                  />
+                </button>
+              </div>
+
+              {/* Configurable Limit for Retry Attempts (when enabled) */}
+              {settings.smartRetryEnabled !== false && (
+                <div className="pt-2 border-t border-slate-800/80 space-y-2.5 animate-fadeIn">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-medium text-slate-300 block">Maximum Retry Limit</span>
+                      <span className="text-[11px] text-slate-400">
+                        Number of attempts before alerting and switching to manual retry
+                      </span>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-xl bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono text-xs font-bold">
+                      {settings.smartRetryMaxAttempts ?? 3} Attempts
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-5 gap-1.5 pt-1">
+                    {[1, 2, 3, 4, 5].map((num) => (
+                      <button
+                        key={num}
+                        type="button"
+                        onClick={() => onUpdateSettings({ smartRetryMaxAttempts: num })}
+                        className={`py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                          (settings.smartRetryMaxAttempts ?? 3) === num
+                            ? 'bg-amber-500/25 border-amber-400 text-amber-200 font-bold shadow-sm ring-1 ring-amber-400/40'
+                            : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        }`}
+                      >
+                        {num} {num === 1 ? 'Time' : 'Times'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="flex items-center justify-between text-[10px] text-slate-500 px-1">
+                    <span>1: Quick failover</span>
+                    <span className="text-amber-400/90 font-medium">3: Recommended (Balanced)</span>
+                    <span>5: High persistence</span>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* 5. Batch Settings */}
             <div className="bg-slate-950/60 border border-slate-800/80 p-4 rounded-2xl space-y-3">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold uppercase tracking-wider text-purple-400 flex items-center gap-1.5">
@@ -872,7 +1249,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               )}
             </div>
 
-            {/* 5. Video File Size Limit Safeguard */}
+            {/* 6. Video File Size Limit Safeguard */}
             <div className="bg-slate-950/60 border border-cyan-900/40 p-4 rounded-2xl space-y-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-semibold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5">
@@ -1538,15 +1915,51 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
             {/* Status Feedback Message */}
             {tgMsg && (
               <div
-                className={`p-3 rounded-xl border text-xs leading-relaxed ${
+                className={`p-3.5 rounded-xl border text-xs leading-relaxed ${
                   tgMsg.type === 'success'
-                    ? 'bg-emerald-950/40 border-emerald-500/30 text-emerald-300'
-                    : 'bg-rose-950/40 border-rose-500/30 text-rose-300'
+                    ? 'bg-emerald-950/50 border-emerald-500/40 text-emerald-300'
+                    : tgMsg.type === 'warning'
+                    ? 'bg-amber-950/50 border-amber-500/40 text-amber-300'
+                    : 'bg-rose-950/50 border-rose-500/40 text-rose-300'
                 }`}
               >
-                {tgMsg.text}
+                <div className="whitespace-pre-line font-sans">{tgMsg.text}</div>
+                {tgMsg.type === 'error' && (tgMsg.text.toLowerCase().includes('member') || tgMsg.text.toLowerCase().includes('forbidden') || tgMsg.text.toLowerCase().includes('permission')) && (
+                  <div className="mt-2.5 pt-2.5 border-t border-rose-500/20 text-[11px] text-rose-200 space-y-1.5">
+                    <p className="font-bold flex items-center gap-1">
+                      <span>💡 সমাধান (How to Fix in 10 seconds):</span>
+                    </p>
+                    <ol className="list-decimal pl-4 space-y-1 text-slate-300">
+                      <li>আপনার Telegram চ্যানেলের নাম/প্রোফাইলে ট্যাপ করুন ➜ <strong>Edit (⚙️)</strong> ➜ <strong>Administrators</strong> এ যান।</li>
+                      <li><strong>Add Admin</strong>-এ ট্যাপ করে আপনার বট ইউজারনেম (e.g. <code className="text-sky-300 font-mono">@{telegramConfig?.botUsername || 'black_world722_bot'}</code>) সিলেক্ট করুন।</li>
+                      <li><strong>'Post Messages'</strong> পারমিশন অন করে <strong>Save / Done</strong> করুন।</li>
+                    </ol>
+                    <div className="pt-1.5">
+                      <a
+                        href={`https://t.me/${telegramConfig?.botUsername || 'black_world722_bot'}?startchannel=true`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-xs shadow-sm"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>১-ক্লিকে বটকে @FluxLoad চ্যানেলে অ্যাডমিন করুন (1-Click Add Admin)</span>
+                      </a>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
+
+            {/* REAL-TIME TELEGRAM API HEALTH & 10GB UPLOAD MONITOR */}
+            <TelegramHealthDashboard
+              onTriggerTestMessage={handleTestTelegram}
+              isTestingMessage={isTgTesting}
+              configured={Boolean(telegramConfig?.configured)}
+              channelTitle={telegramConfig?.channelTitle}
+              chatId={telegramConfig?.chatId}
+              botUsername={telegramConfig?.botUsername}
+              onSavePreferences={handleSaveTelegramPreferences}
+            />
 
             {/* Configured State or Setup Form */}
             {telegramConfig?.configured ? (
@@ -1569,6 +1982,267 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   <span className="text-[11px] font-mono text-slate-500">
                     Token: {telegramConfig.botTokenMasked}
                   </span>
+                </div>
+
+                {/* Official Community Channel Invitation */}
+                <div className="p-3.5 bg-gradient-to-r from-sky-950/60 via-slate-900 to-blue-950/60 border border-sky-500/40 rounded-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-md">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-blue-600 flex items-center justify-center text-white shadow-md shadow-sky-500/30">
+                      <Send className="w-4 h-4 -rotate-12 translate-x-0.5" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xs font-bold text-slate-100">Official Channel: https://t.me/FluxLoad</span>
+                        <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300">
+                          Community
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-amber-300 font-medium">
+                        Join now everybody! ক্লাউড ভিডিও ডেলিভারি ও স্টিকারের জন্য আমাদের অফিশিয়াল চ্যানেলে যোগ দিন।
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+                    <a
+                      href="https://t.me/FluxLoad"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="px-3 py-1.5 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1 shadow-sm cursor-pointer"
+                    >
+                      <Send className="w-3 h-3" />
+                      <span>Join @FluxLoad</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+
+                {/* Auto-Post on Complete Toggle */}
+                <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                      <Zap className="w-3.5 h-3.5 text-amber-400" />
+                      <span>ভিডিও ডাউনলোড শেষ হলে অটো টেলিগ্রামে পোস্ট (Auto-Post on Complete)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      ভিডিও ডাউনলোড হওয়ার সাথে সাথে স্বয়ংক্রিয়ভাবে আপনার Telegram চ্যানেলে চলে যাবে। (৫০ MB এর নিচের ভিডিও সরাসরি ফাইল হিসেবে, এবং ৫০ MB - ১০ GB এর ফাইল আল্ট্রা কার্ড ও স্ট্রিমিং সহ)।
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const next = !telegramConfig.autoSend;
+                      try {
+                        const res = await fetch('/api/telegram/toggle-auto-send', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ autoSend: next }),
+                        });
+                        if (res.ok) {
+                          setTelegramConfig((prev) => (prev ? { ...prev, autoSend: next } : prev));
+                          addToast(
+                            'success',
+                            next ? 'Auto-Post Enabled 🚀' : 'Auto-Post Disabled',
+                            next
+                              ? 'ভিডিও ডাউনলোড শেষ হলেই টেলিগ্রাম চ্যানেলে চলে যাবে।'
+                              : 'অটো পোস্ট বন্ধ রাখা হয়েছে।'
+                          );
+                        }
+                      } catch {}
+                    }}
+                    className={`shrink-0 px-3.5 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer ${
+                      telegramConfig.autoSend
+                        ? 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md shadow-emerald-500/20'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700'
+                    }`}
+                  >
+                    <span>{telegramConfig.autoSend ? '✓ চালু (ACTIVE)' : 'বন্ধ (OFF)'}</span>
+                  </button>
+                </div>
+
+                {/* .size remove / Remove Size Limit Toggle (10GB+ Unlimited Engine) */}
+                <div className="p-3.5 bg-gradient-to-r from-amber-950/40 via-slate-900 to-sky-950/40 border border-amber-500/30 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>সাইজ লিমিট রিমুভ (.size remove / 10GB+ Unlimited Engine)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400 leading-relaxed">
+                      টেলিগ্রামের সাধারণ ৫০ MB সীমা সম্পূর্ণ প্রত্যাহার করে ১০ জিবি পর্যন্ত যে কোনো সাইজের ফাইল সরাসরি হাই-স্পিড ক্লাউড স্ট্রিম ও ডাউনলোড কার্ডের মাধ্যমে ডেলিভারি করুন।
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const next = !telegramConfig.removeSizeLimit;
+                      try {
+                        const res = await fetch('/api/telegram/toggle-remove-size-limit', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ removeSizeLimit: next }),
+                        });
+                        if (res.ok) {
+                          setTelegramConfig((prev) => (prev ? { ...prev, removeSizeLimit: next } : prev));
+                          addToast(
+                            'success',
+                            next ? 'Size Limit Removed ⚡' : 'Standard Limit Mode',
+                            next
+                              ? 'সাইজ লিমিট সফলভাবে রিমুভ করা হয়েছে (১০ জিবি পর্যন্ত ডেলিভারি)।'
+                              : 'সাধারণ সাইজ লিমিট মোড চালু হয়েছে।'
+                          );
+                        }
+                      } catch {}
+                    }}
+                    className={`shrink-0 px-3.5 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer ${
+                      telegramConfig.removeSizeLimit
+                        ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20'
+                        : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700'
+                    }`}
+                  >
+                    <span>{telegramConfig.removeSizeLimit ? '✓ সাইজ লিমিট রিমুভড (10GB+)' : 'স্ট্যান্ডার্ড মোড'}</span>
+                  </button>
+                </div>
+
+                {/* MULTI-CHANNEL BROADCAST MANAGEMENT (একই সাথে অনেক টেলিগ্রাম চ্যানেলে আপলোড) */}
+                <div className="p-4 bg-gradient-to-b from-slate-900/90 to-slate-950/90 border border-sky-500/30 rounded-xl space-y-3.5 shadow-md">
+                  <div className="flex items-center justify-between flex-wrap gap-2 pb-2.5 border-b border-slate-800">
+                    <div>
+                      <div className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                        <Radio className="w-3.5 h-3.5 text-sky-400 animate-pulse" />
+                        <span>মাল্টি-চ্যানেল ব্রডকাস্ট (Multi-Channel Broadcast)</span>
+                        <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-mono font-bold">
+                          {telegramConfig?.channels?.filter(c => c.enabled !== false).length || 1} টি চ্যানেলে সক্রিয়
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        একই সাথে অনেকগুলো টেলিগ্রাম চ্যানেলে ভিডিও আপলোড করুন। যেকোনো ডাউনলোড সম্পন্ন হলে সব সক্রিয় চ্যানেলে সমান্তরালভাবে (Simultaneous Parallel) আপলোড হবে।
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Channels List */}
+                  <div className="space-y-2">
+                    {(telegramConfig?.channels && telegramConfig.channels.length > 0
+                      ? telegramConfig.channels
+                      : [{ chatId: '@FluxLoad', channelTitle: 'FluxLoad (Official)', enabled: true }]
+                    ).map((channel) => {
+                      const isOfficial = channel.chatId.toLowerCase() === '@fluxload';
+                      const isEnabled = channel.enabled !== false;
+                      return (
+                        <div
+                          key={channel.chatId}
+                          className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                            isEnabled
+                              ? 'bg-slate-950/80 border-sky-500/30'
+                              : 'bg-slate-950/40 border-slate-800 opacity-60'
+                          }`}
+                        >
+                          <div className="flex items-center space-x-2.5 min-w-0">
+                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                              isOfficial ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-800 text-slate-300'
+                            }`}>
+                              <Tv className="w-4 h-4" />
+                            </div>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <span className="text-xs font-bold text-slate-100 truncate">
+                                  {channel.channelTitle || channel.chatId}
+                                </span>
+                                {isOfficial && (
+                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                    Official Channel
+                                  </span>
+                                )}
+                                <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
+                                  isEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500'
+                                }`}>
+                                  {isEnabled ? '✓ সক্রিয় (Broadcasting)' : 'বিরত (Paused)'}
+                                </span>
+                              </div>
+                              <div className="text-[11px] text-slate-400 font-mono truncate">
+                                {channel.chatId}
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {/* Toggle Enable/Disable */}
+                            <button
+                              type="button"
+                              onClick={() => handleToggleChannel(channel.chatId, isEnabled)}
+                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                isEnabled
+                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700'
+                              }`}
+                            >
+                              {isEnabled ? 'অন' : 'অফ'}
+                            </button>
+
+                            {/* Remove channel button (if not official) */}
+                            {!isOfficial && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveChannel(channel.chatId)}
+                                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                                title="চ্যানেল মুছে ফেলুন"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+
+                            {/* 1-Click Admin Link */}
+                            <a
+                              href={`https://t.me/${telegramConfig?.botUsername || 'black_world722_bot'}?startchannel=true`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="p-1.5 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-colors"
+                              title="বটকে চ্যানেলে অ্যাডমিন করুন"
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            </a>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add New Channel Input */}
+                  <div className="pt-2.5 border-t border-slate-800/80">
+                    <label className="block text-[11px] font-semibold text-slate-300 mb-1.5">
+                      আরেকটি টেলিগ্রাম চ্যানেল যুক্ত করুন (Add Another Channel):
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={newChannelInput}
+                        onChange={(e) => setNewChannelInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddChannel();
+                          }
+                        }}
+                        placeholder="@MyChannel অথবা https://t.me/MyChannel"
+                        className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleAddChannel}
+                        disabled={isAddingChannel || !newChannelInput.trim()}
+                        className="px-3.5 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+                      >
+                        {isAddingChannel ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Plus className="w-3.5 h-3.5" />
+                        )}
+                        <span>যুক্ত করুন</span>
+                      </button>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1.5">
+                      💡 যেকোনো চ্যানেল যুক্ত করার পর বটকে (<code className="text-sky-300 font-mono">@{telegramConfig?.botUsername || 'black_world722_bot'}</code>) ঐ চ্যানেলে Administrator করে 'Post Messages' পারমিশন দিয়ে রাখুন।
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-2 pt-1">
@@ -1645,7 +2319,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                   </p>
                 </div>
 
-                <div className="flex items-center justify-between pt-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
                   <button
                     type="button"
                     onClick={() => setShowTgGuide(!showTgGuide)}
@@ -1655,19 +2329,32 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     <span>{showTgGuide ? 'গাইড বন্ধ করুন' : 'কীভাবে বট তৈরি করবেন?'}</span>
                   </button>
 
-                  <button
-                    type="button"
-                    onClick={handleSaveTelegram}
-                    disabled={isTgSaving || !tgBotToken.trim() || !tgChatId.trim()}
-                    className="py-2.5 px-4 bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    {isTgSaving ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <Check className="w-3.5 h-3.5" />
-                    )}
-                    <span>কানেক্ট ও সেভ করুন</span>
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => handleSaveTelegram(true)}
+                      disabled={isTgSaving || !tgBotToken.trim() || !tgChatId.trim()}
+                      className="py-2.5 px-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                      title="কোনো ভেরিফিকেশন ছাড়া সরাসরি সেভ করুন (Save directly without API check)"
+                    >
+                      <Save className="w-3.5 h-3.5 text-slate-400" />
+                      <span>সরাসরি সেভ করুন</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => handleSaveTelegram(false)}
+                      disabled={isTgSaving || !tgBotToken.trim() || !tgChatId.trim()}
+                      className="py-2.5 px-4 bg-sky-500 hover:bg-sky-400 disabled:opacity-40 text-slate-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                    >
+                      {isTgSaving ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      <span>কানেক্ট ও সেভ করুন</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
@@ -1698,24 +2385,243 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </div>
         )}
 
+        {/* TAB 5: ALL DATA SAVE & BACKUP */}
+        {activeTab === 'data' && (
+          <div className="space-y-6 text-sm animate-fadeIn">
+            {/* Master Action: Save All Data Card */}
+            <div className="p-4 sm:p-5 bg-gradient-to-r from-emerald-950/80 via-teal-950/50 to-slate-900 border border-emerald-500/40 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl shadow-emerald-950/40">
+              <div className="space-y-1">
+                <div className="flex items-center gap-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <h4 className="text-sm sm:text-base font-bold text-emerald-200 flex items-center gap-2">
+                    <Save className="w-4 h-4 text-emerald-400" />
+                    <span>এক ক্লিকে সব ডাটা সেভ করুন (Save All Data Now)</span>
+                  </h4>
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  বর্তমান সেটিংস, ডাউনলোড হিস্টোরি, বুকমার্ক এবং টেলিগ্রাম কনফিগারেশন একসাথে লোকাল স্টোরেজ ও ক্লাউডে সেভ হবে এবং ব্যাকআপ ফাইল ডাউনলোড হবে।
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveAllDataNow}
+                disabled={isSyncingAll}
+                className="py-3 px-5 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 text-slate-950 font-bold rounded-xl text-xs sm:text-sm flex items-center justify-center space-x-2 shrink-0 cursor-pointer shadow-lg shadow-emerald-500/20 transition-all"
+              >
+                {isSyncingAll ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>সেভ হচ্ছে...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4" />
+                    <span>সব ডাটা সেভ করুন</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Status Feedback Message */}
+            {syncFeedback && (
+              <div
+                className={`p-3.5 rounded-2xl border text-xs leading-relaxed flex items-center gap-2 ${
+                  syncFeedback.type === 'success'
+                    ? 'bg-emerald-950/60 border-emerald-500/40 text-emerald-300'
+                    : 'bg-rose-950/60 border-rose-500/40 text-rose-300'
+                }`}
+              >
+                {syncFeedback.type === 'success' ? (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                ) : (
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                )}
+                <span>{syncFeedback.message}</span>
+              </div>
+            )}
+
+            {/* Storage Status Overview Card */}
+            <div className="bg-slate-950/70 border border-slate-800 p-5 rounded-2xl space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-800">
+                <div className="flex items-center space-x-3">
+                  <div className="w-10 h-10 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-slate-100 flex items-center gap-2">
+                      <span>Data Persistence & Cloud Sync</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-mono font-bold">
+                        {user ? 'Cloud Active' : 'Local Storage'}
+                      </span>
+                    </h4>
+                    <p className="text-xs text-slate-400">
+                      {user ? `Google Account: ${user.email}` : 'Guest Mode • Browser Storage'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 text-xs">
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700/80 font-mono text-cyan-300">
+                    {history.length} Saved Records
+                  </span>
+                </div>
+              </div>
+
+              {/* Real-time Status Details */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800/80 space-y-1">
+                  <div className="text-[11px] text-slate-400 font-medium flex items-center gap-1.5">
+                    <Cloud className="w-3.5 h-3.5 text-cyan-400" />
+                    <span>Firestore Database</span>
+                  </div>
+                  <div className="text-xs font-semibold text-slate-200">
+                    {user ? 'স্বয়ংক্রিয় ক্লাউড সিঙ্ক চালু (Auto-Sync)' : 'লগইন করলে ক্লাউডে সিঙ্ক হবে'}
+                  </div>
+                </div>
+
+                <div className="p-3 bg-slate-900/80 rounded-xl border border-slate-800/80 space-y-1">
+                  <div className="text-[11px] text-slate-400 font-medium flex items-center gap-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>Device Local Storage</span>
+                  </div>
+                  <div className="text-xs font-semibold text-slate-200">
+                    সব সেটিংস ও হিস্টোরি ডিভাইসে সংরক্ষিত
+                  </div>
+                </div>
+              </div>
+
+              {/* Cloud Sync Button */}
+              {user && onSyncAllData && (
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    onClick={handlePerformSync}
+                    disabled={isSyncingAll}
+                    className="w-full py-3 px-4 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold rounded-xl shadow-lg shadow-emerald-500/20 transition-all flex items-center justify-center space-x-2 text-xs sm:text-sm cursor-pointer disabled:opacity-50"
+                  >
+                    {isSyncingAll ? (
+                      <>
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        <span>সব ডাটা ক্লাউডে সেভ ও সিঙ্ক হচ্ছে...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Cloud className="w-4 h-4" />
+                        <span>সব ডাটা ক্লাউডে সেভ ও সিঙ্ক করুন (Sync All to Cloud Now)</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Offline Backup & Restore Section */}
+            <div className="bg-slate-950/70 border border-slate-800 p-5 rounded-2xl space-y-4">
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                  <Download className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>Offline JSON Backup & Restore (অফলাইন ব্যাকআপ)</span>
+                </h4>
+                <p className="text-xs text-slate-400 mt-1">
+                  আপনার সম্পূর্ণ সেটিংস, ডাউনলোড হিস্টোরি ও বুকমার্ক করা মিডিয়া একটি ফাইলে ডাউনলোড করে রাখুন অথবা ফাইল আপলোড করে ফিরিয়ে আনুন।
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {/* Export Button */}
+                <button
+                  type="button"
+                  onClick={onExportAllData}
+                  className="py-3 px-4 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-cyan-500/50 text-slate-200 hover:text-cyan-300 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-2 cursor-pointer shadow-sm"
+                >
+                  <Download className="w-4 h-4 text-cyan-400" />
+                  <span>সব ডাটা ব্যাকআপ ডাউনলোড (Export JSON)</span>
+                </button>
+
+                {/* Import Button */}
+                <label className="py-3 px-4 bg-slate-900 hover:bg-slate-800 border border-slate-700/80 hover:border-purple-500/50 text-slate-200 hover:text-purple-300 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-2 cursor-pointer shadow-sm">
+                  {isImporting ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-purple-400" />
+                  ) : (
+                    <Upload className="w-4 h-4 text-purple-400" />
+                  )}
+                  <span>ব্যাকআপ ফাইল রিস্টোর (Import JSON)</span>
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleFileImport}
+                    className="hidden"
+                    disabled={isImporting}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Explicit Save Current Settings Confirmation */}
+            <div className="bg-slate-950/70 border border-slate-800 p-5 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h4 className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
+                  <Save className="w-3.5 h-3.5 text-cyan-400" />
+                  <span>বর্তমান অ্যাপ সেটিংস সেভ করুন</span>
+                </h4>
+                <p className="text-[11px] text-slate-400">
+                  ডিফল্ট কোয়ালিটি ({settings.defaultQuality}), ফরম্যাট ({settings.defaultFormat}) এবং কনকারেন্সি ব্রাউজারে সংরক্ষিত।
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  onUpdateSettings({});
+                  addToast('success', 'Settings Saved', 'বর্তমান সেটিংস সফলভাবে সংরক্ষিত হয়েছে!');
+                  setSyncFeedback({ type: 'success', message: 'বর্তমান সেটিংস সফলভাবে সংরক্ষিত হয়েছে!' });
+                }}
+                className="py-2 px-4 bg-cyan-600 hover:bg-cyan-500 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-cyan-500/20 flex items-center justify-center space-x-1.5 shrink-0 cursor-pointer"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>Save Settings Now</span>
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Footer Actions */}
-        <div className="flex items-center justify-between pt-5 mt-6 border-t border-slate-800">
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-5 mt-6 border-t border-slate-800">
           <button
             type="button"
             onClick={onResetSettings}
-            className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-rose-400 transition-colors"
+            className="flex items-center space-x-1.5 text-xs text-slate-400 hover:text-rose-400 transition-colors cursor-pointer"
           >
             <RotateCcw className="w-3.5 h-3.5" />
             <span>Reset to Defaults</span>
           </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-500/25 transition-all flex items-center space-x-1.5"
-          >
-            <Check className="w-4 h-4" />
-            <span>Done</span>
-          </button>
+
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={handleSaveAllDataNow}
+              disabled={isSyncingAll}
+              className="py-2 px-3.5 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition-colors cursor-pointer"
+              title="সব সেটিংস, হিস্টোরি ও কনফিগারেশন সেভ করুন"
+            >
+              {isSyncingAll ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Save className="w-3.5 h-3.5 text-emerald-400" />
+              )}
+              <span>সব ডাটা সেভ করুন</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-2.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-500/25 transition-all flex items-center space-x-1.5 cursor-pointer"
+            >
+              <Check className="w-4 h-4" />
+              <span>Done</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>

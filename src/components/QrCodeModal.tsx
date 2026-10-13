@@ -13,7 +13,6 @@ import {
   ShieldAlert,
   Info,
 } from 'lucide-react';
-import { MobileGuideModal } from './MobileGuideModal';
 import { downloadFileWithBlob } from '../lib/downloadHelper';
 
 interface QrCodeModalProps {
@@ -33,7 +32,6 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
   const [copied, setCopied] = useState(false);
   const [fullUrl, setFullUrl] = useState<string>('');
   const [showTroubleshoot, setShowTroubleshoot] = useState(false);
-  const [isGuideOpen, setIsGuideOpen] = useState(false);
   const [canShare, setCanShare] = useState(false);
 
   useEffect(() => {
@@ -93,8 +91,7 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
   };
 
   return (
-    <>
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
         <div className="bg-slate-900 border border-cyan-500/30 w-full max-w-md max-h-[95vh] overflow-y-auto rounded-3xl p-5 sm:p-6 shadow-2xl shadow-cyan-950/50 flex flex-col items-center text-center relative space-y-3.5">
           {/* Close Button */}
           <button
@@ -161,14 +158,6 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
                 <p>১. ক্যামেরার ভেতরের ব্রাউজার এড়িয়ে সরাসরি <strong>Chrome বা Safari</strong> দিয়ে ওপেন করুন।</p>
                 <p>২. গুগলের পারমিশন স্ক্রিন এলে <strong>&quot;Grant permission&quot;</strong> চাপুন।</p>
                 <p>৩. আইফোনে ডাউনলোড শেষ হলে ভিডিওটি আপনার <strong>Files &gt; Downloads</strong> এ সেভ হবে।</p>
-                <button
-                  type="button"
-                  onClick={() => setIsGuideOpen(true)}
-                  className="mt-1 text-cyan-300 font-semibold underline flex items-center gap-1"
-                >
-                  <HelpCircle className="w-3.5 h-3.5" />
-                  সম্পূর্ণ মোবাইল গাইড বিস্তারিত পড়ুন
-                </button>
               </div>
             ) : (
               <p className="text-[11px] text-slate-400">
@@ -208,14 +197,16 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
                   <span>Share / পাঠাই</span>
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsGuideOpen(true)}
+                <a
+                  href={fullUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+                  title="ব্রাউজারে সরাসরি ওপেন করুন"
                 >
-                  <HelpCircle className="w-4 h-4 text-cyan-400" />
-                  <span>ফোন গাইড</span>
-                </button>
+                  <ExternalLink className="w-4 h-4 text-cyan-400" />
+                  <span>Open Link</span>
+                </a>
               )}
             </div>
 
@@ -232,8 +223,5 @@ export const QrCodeModal: React.FC<QrCodeModalProps> = ({
           </div>
         </div>
       </div>
-
-      <MobileGuideModal isOpen={isGuideOpen} onClose={() => setIsGuideOpen(false)} />
-    </>
   );
 };

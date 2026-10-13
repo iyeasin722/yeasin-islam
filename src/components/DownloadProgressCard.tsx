@@ -22,12 +22,12 @@ import {
   HelpCircle,
   Share2,
   Scissors,
+  Send,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { soundNotify } from '../lib/soundNotify';
 import { downloadFileWithBlob } from '../lib/downloadHelper';
 import { QrCodeModal } from './QrCodeModal';
-import { MobileGuideModal } from './MobileGuideModal';
 
 interface DownloadProgressCardProps {
   taskStatus: TaskStatus;
@@ -64,7 +64,6 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
   const [showPreviewPlayer, setShowPreviewPlayer] = useState(false);
   const [isPlaying, setIsPlaying] = useState(false);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
-  const [isMobileGuideOpen, setIsMobileGuideOpen] = useState(false);
   const [isSavingToDisk, setIsSavingToDisk] = useState(false);
   const [saveProgress, setSaveProgress] = useState<{
     percent: number;
@@ -253,32 +252,47 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
 
         {isError && (
           <div className="mt-4 p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs max-w-md mx-auto text-left space-y-2.5">
-            <div className="flex items-center gap-2 font-semibold text-amber-300">
-              <Cookie className="w-4 h-4 text-amber-400 shrink-0" />
-              <span>Host Protection, Rate Limit or Verification</span>
+            <div className="flex items-center justify-between gap-2 font-semibold text-amber-300">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>
+                  {taskStatus.error?.toLowerCase().includes('network') ||
+                  taskStatus.error?.toLowerCase().includes('connection') ||
+                  taskStatus.error?.toLowerCase().includes('timeout') ||
+                  taskStatus.error?.toLowerCase().includes('socket')
+                    ? 'Network / Connection Interrupted'
+                    : 'Host Protection, Rate Limit or Verification'}
+                </span>
+              </div>
+              {settings?.smartRetryEnabled !== false && (
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono font-medium">
+                  Smart Retry ({settings?.smartRetryMaxAttempts ?? 3}x)
+                </span>
+              )}
             </div>
             <p className="text-[11px] text-amber-200/90 leading-relaxed">
-              {taskStatus.error || 'The media host rate-limited or blocked anonymous cloud requests. You can bypass this easily by adding site cookies in Settings.'}
+              {taskStatus.error ||
+                'The media host rate-limited or interrupted the download. You can retry with Smart Retry or add site cookies in Settings.'}
             </p>
             <div className="flex flex-col sm:flex-row gap-2 pt-1">
-              {onOpenSettings && (
-                <button
-                  type="button"
-                  onClick={onOpenSettings}
-                  className="flex-1 py-2 px-3 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-xl text-amber-200 text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Cookie className="w-3.5 h-3.5" />
-                  <span>Open Cookie Settings</span>
-                </button>
-              )}
               {onRetry && (
                 <button
                   type="button"
                   onClick={onRetry}
-                  className="flex-1 py-2 px-3 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 rounded-xl text-cyan-200 text-xs font-semibold flex items-center justify-center gap-2 transition-colors"
+                  className="flex-1 py-2 px-3 bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-500/40 rounded-xl text-cyan-200 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
                 >
                   <RefreshCw className="w-3.5 h-3.5" />
                   <span>Retry Download</span>
+                </button>
+              )}
+              {onOpenSettings && (
+                <button
+                  type="button"
+                  onClick={onOpenSettings}
+                  className="flex-1 py-2 px-3 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 rounded-xl text-amber-200 text-xs font-semibold flex items-center justify-center gap-2 transition-colors cursor-pointer"
+                >
+                  <Cookie className="w-3.5 h-3.5" />
+                  <span>Open Settings</span>
                 </button>
               )}
             </div>
@@ -445,22 +459,6 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
           </div>
         )}
 
-        {isCompleted && taskStatus.downloadUrl && isMobile && (
-          <div className="p-3 bg-emerald-950/40 border border-emerald-500/30 rounded-2xl flex items-center justify-between text-xs text-emerald-300 shadow-sm">
-            <div className="flex items-center gap-2">
-              <Smartphone className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>ভিডিও প্রস্তুত! নিচে <strong>&quot;ফোনে সেভ করুন&quot;</strong> চাপুন।</span>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsMobileGuideOpen(true)}
-              className="text-[11px] underline text-cyan-300 shrink-0 font-semibold hover:text-white"
-            >
-              ফোন সহায়তা
-            </button>
-          </div>
-        )}
-
         <div className="flex flex-col sm:flex-row gap-3">
           {isCompleted && taskStatus.downloadUrl && (
             <>
@@ -499,7 +497,7 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
                 <ExternalLink className="w-4 h-4" />
                 <span>{isMobile ? 'Open Stream / সরাসরি দেখুন' : 'Open in New Tab'}</span>
               </a>
-              {!isMobile ? (
+              {!isMobile && (
                 <button
                   type="button"
                   onClick={() => setIsQrModalOpen(true)}
@@ -508,16 +506,6 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
                 >
                   <QrCode className="w-4 h-4" />
                   <span>QR to Phone</span>
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setIsMobileGuideOpen(true)}
-                  className="py-4 px-4 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-cyan-300 hover:text-cyan-200 font-semibold rounded-2xl transition-all flex items-center justify-center space-x-2 text-sm shadow-md active:scale-98"
-                  title="Mobile download help and troubleshooting"
-                >
-                  <HelpCircle className="w-4 h-4" />
-                  <span>Help / সহায়তা</span>
                 </button>
               )}
 
@@ -590,6 +578,87 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
             </>
           )}
         </div>
+
+        {/* Telegram Multi-Channel Broadcast Status Under Video */}
+        <div className="mt-4 p-3.5 bg-gradient-to-r from-sky-950/60 via-slate-900 to-blue-950/60 border border-sky-500/35 rounded-2xl shadow-lg w-full space-y-2.5">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center space-x-2.5 min-w-0">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-sky-500/30 to-blue-600/30 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0 shadow-sm">
+                <Send className="w-4 h-4" />
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs font-bold text-slate-100 flex items-center gap-1.5 flex-wrap">
+                  <span>টেলিগ্রাম চ্যানেল ব্রডকাস্ট (Multi-Channel):</span>
+                  {taskStatus.telegramStatus === 'uploading' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-bold border border-sky-500/40 animate-pulse">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      সব চ্যানেলে আপলোড হচ্ছে...
+                    </span>
+                  )}
+                  {taskStatus.telegramStatus === 'completed' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
+                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                      {taskStatus.telegramSuccessCount && taskStatus.telegramSuccessCount > 1
+                        ? `${taskStatus.telegramSuccessCount}টি চ্যানেলে পোস্ট সম্পন্ন!`
+                        : 'পোস্ট সম্পন্ন!'}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[11px] text-slate-400 truncate">
+                  {taskStatus.telegramMessage || 'ভিডিওটি একযোগে সকল টেলিগ্রাম চ্যানেলে সরাসরি আপলোড ও প্লে করা যাবে'}
+                </p>
+              </div>
+            </div>
+
+            <a
+              href="https://t.me/FluxLoad"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-md shadow-sky-500/20 cursor-pointer"
+            >
+              <Send className="w-3 h-3" />
+              <span>Official Channel</span>
+            </a>
+          </div>
+
+          {/* Individual Channel Post Links */}
+          {taskStatus.telegramChannels && taskStatus.telegramChannels.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 border-t border-slate-800/80">
+              {taskStatus.telegramChannels.map((ch, idx) => (
+                <div
+                  key={idx}
+                  className="p-2 rounded-xl bg-slate-950/80 border border-slate-800 flex items-center justify-between gap-2 text-xs"
+                >
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <span className={`w-2 h-2 rounded-full shrink-0 ${ch.success ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                    <div className="min-w-0">
+                      <span className="font-bold text-slate-200 block truncate">{ch.channelTitle || ch.targetChat}</span>
+                      <span className="text-[10px] text-slate-400 font-mono block truncate">{ch.targetChat}</span>
+                    </div>
+                  </div>
+
+                  <div className="shrink-0 flex items-center gap-1.5">
+                    {ch.success && ch.channelPostUrl ? (
+                      <a
+                        href={ch.channelPostUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold flex items-center gap-1"
+                      >
+                        <span>পোস্ট দেখুন</span>
+                        <ExternalLink className="w-2.5 h-2.5" />
+                      </a>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">
+                        {ch.success ? 'সফল' : 'ব্যর্থ'}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="mt-6 pt-4 border-t border-slate-800/60 flex items-center justify-center text-xs text-slate-500 gap-2">
@@ -606,12 +675,6 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
           filename={finalFilename}
         />
       )}
-
-      {/* Mobile Guide Modal */}
-      <MobileGuideModal
-        isOpen={isMobileGuideOpen}
-        onClose={() => setIsMobileGuideOpen(false)}
-      />
     </div>
   );
 };

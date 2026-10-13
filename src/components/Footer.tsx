@@ -1,36 +1,39 @@
 import React from 'react';
-import { Shield, Lock, Activity, Smartphone } from 'lucide-react';
+import { Shield, Lock, Activity } from 'lucide-react';
 
 interface FooterProps {
   onOpenDiagnostics?: () => void;
-  onOpenMobileGuide?: () => void;
 }
 
-export const Footer: React.FC<FooterProps> = ({ onOpenDiagnostics, onOpenMobileGuide }) => {
+export const Footer: React.FC<FooterProps> = ({ onOpenDiagnostics }) => {
   return (
-    <footer className="w-full border-t border-slate-800/80 bg-slate-950 py-8 px-4 mt-auto">
+    <footer className="w-full max-w-[100vw] overflow-x-hidden border-t border-slate-800/80 bg-slate-950 py-8 px-4 mt-auto">
       <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-        <div className="flex items-center space-x-2">
-          <span className="font-bold text-slate-300">FluxLoad</span>
-          <span>•</span>
-          <span>Supports 1000+ Websites</span>
-          {onOpenMobileGuide && (
-            <>
-              <span>•</span>
-              <button
-                type="button"
-                onClick={onOpenMobileGuide}
-                className="text-cyan-400 hover:text-cyan-300 transition-colors flex items-center gap-1 font-medium"
-                title="স্মার্টফোনে ব্যবহারের সহায়িকা"
-              >
-                <Smartphone className="w-3.5 h-3.5" />
-                <span>মোবাইল গাইড / Phone Help</span>
-              </button>
-            </>
-          )}
+        <div className="flex items-center space-x-2.5">
+          <img
+            src="/logo.jpg"
+            alt="FluxLoad"
+            className="w-6 h-6 rounded-lg object-cover border border-amber-500/40 shadow-sm shadow-orange-500/20"
+          />
+          <div className="flex items-center space-x-1.5 flex-wrap">
+            <span className="font-bold text-slate-200">FluxLoad</span>
+            <span className="text-[11px] text-amber-400 font-semibold">power by YEASIN</span>
+            <span>•</span>
+            <span>Supports 1000+ Websites</span>
+          </div>
         </div>
 
-        <div className="flex items-center space-x-6">
+        <div className="flex items-center space-x-4 sm:space-x-6 flex-wrap">
+          <a
+            href="https://t.me/FluxLoad"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-1.5 text-sky-400 hover:text-sky-300 transition-colors font-medium"
+            title="Join Official FluxLoad Telegram Channel (https://t.me/FluxLoad)"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-sky-400 animate-pulse"></span>
+            <span>Join @FluxLoad</span>
+          </a>
           <span className="flex items-center gap-1.5 hover:text-slate-400 transition-colors">
             <Lock className="w-3.5 h-3.5 text-cyan-400" /> No Tracking
           </span>
@@ -40,25 +43,14 @@ export const Footer: React.FC<FooterProps> = ({ onOpenDiagnostics, onOpenMobileG
         </div>
 
         <div>
-          {onOpenDiagnostics ? (
+          {onOpenDiagnostics && (
             <button
-              type="button"
               onClick={onOpenDiagnostics}
-              className="text-center md:text-right hover:text-cyan-400 transition-colors flex items-center gap-1.5 group"
-              title="Open System Diagnostics to view yt-dlp and FFmpeg version status"
+              className="hover:text-slate-400 transition-colors flex items-center space-x-1"
             >
-              <Activity className="w-3.5 h-3.5 text-purple-400 group-hover:animate-pulse" />
-              <span>
-                Powered by <strong className="text-slate-400 group-hover:text-cyan-300">yt-dlp</strong> & <strong className="text-slate-400 group-hover:text-blue-300">FFmpeg</strong>
-              </span>
-              <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-900 border border-slate-800 text-slate-400 group-hover:border-cyan-500/40 group-hover:text-cyan-300 font-mono">
-                Diagnostics
-              </span>
+              <Activity className="w-3.5 h-3.5 text-cyan-400" />
+              <span>System Status</span>
             </button>
-          ) : (
-            <p className="text-center md:text-right">
-              Powered by <strong className="text-slate-400">yt-dlp</strong> & <strong className="text-slate-400">FFmpeg</strong>
-            </p>
           )}
         </div>
       </div>

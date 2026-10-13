@@ -14,6 +14,7 @@ import {
   Film,
   Music,
   Zap,
+  Send,
 } from 'lucide-react';
 import { LocalConversionJob, AudioBitrateChoice } from '../types';
 import { QrCodeModal } from './QrCodeModal';
@@ -404,6 +405,40 @@ export const LocalMediaConverter: React.FC<LocalMediaConverterProps> = ({
                   <span>Convert Another</span>
                 </button>
               </div>
+
+              {/* Official Telegram Channel Link Under Converted Video */}
+              <div className="mt-4 p-3 bg-gradient-to-r from-sky-950/40 via-slate-900 to-sky-950/40 border border-sky-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-md">
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <div className="w-8 h-8 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+                    <Send className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5 flex-wrap">
+                      <span>Official Telegram:</span>
+                      <a
+                        href="https://t.me/FluxLoad"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-sky-400 hover:text-sky-300 font-mono hover:underline font-bold"
+                      >
+                        https://t.me/FluxLoad
+                      </a>
+                    </div>
+                    <p className="text-[11px] text-slate-400 truncate">
+                      সব ভিডিও ও অডিও ডাউনলোড-আপলোডের জন্য জয়েন করুন
+                    </p>
+                  </div>
+                </div>
+                <a
+                  href="https://t.me/FluxLoad"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-md shadow-sky-500/20 cursor-pointer"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>Join</span>
+                </a>
+              </div>
             </div>
           )}
 
@@ -429,6 +464,42 @@ export const LocalMediaConverter: React.FC<LocalMediaConverterProps> = ({
                 </>
               )}
             </button>
+          )}
+
+          {/* Official Telegram Channel Link Under Upload Area */}
+          {conversionPhase !== 'done' && (
+            <div className="mt-4 p-3 bg-gradient-to-r from-sky-950/40 via-slate-900 to-sky-950/40 border border-sky-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-md">
+              <div className="flex items-center space-x-2.5 min-w-0">
+                <div className="w-8 h-8 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+                  <Send className="w-4 h-4" />
+                </div>
+                <div className="min-w-0">
+                  <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5 flex-wrap">
+                    <span>Official Telegram:</span>
+                    <a
+                      href="https://t.me/FluxLoad"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sky-400 hover:text-sky-300 font-mono hover:underline font-bold"
+                    >
+                      https://t.me/FluxLoad
+                    </a>
+                  </div>
+                  <p className="text-[11px] text-slate-400 truncate">
+                    সব ভিডিও ডাউনলোড ও আপলোড আপডেট পেতে চ্যানেলে যুক্ত হোন
+                  </p>
+                </div>
+              </div>
+              <a
+                href="https://t.me/FluxLoad"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-md shadow-sky-500/20 cursor-pointer"
+              >
+                <Send className="w-3 h-3" />
+                <span>Join</span>
+              </a>
+            </div>
           )}
         </div>
       )}

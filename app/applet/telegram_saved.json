@@ -1,0 +1,10 @@
+{
+  "botToken": "8887492638:AAE1orTrIaMbMPwT-ycrKfP0-qlwRWyFQ8M",
+  "chatId": "@FluxLoad",
+  "channelTitle": "FluxLoad",
+  "botUsername": "black_world722_bot",
+  "autoSend": true,
+  "removeSizeLimit": true,
+  "maxUploadGb": 10,
+  "uploadDeliveryMode": "smart_10gb"
+}

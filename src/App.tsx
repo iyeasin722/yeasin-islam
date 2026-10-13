@@ -10,11 +10,15 @@ import { ErrorTestModal } from './components/ErrorTestModal';
 import { HistoryModal } from './components/HistoryModal';
 import { SettingsModal } from './components/SettingsModal';
 import { LocalMediaConverter } from './components/LocalMediaConverter';
-import { MobileGuideModal } from './components/MobileGuideModal';
 import { SocialQuickMode } from './components/SocialQuickMode';
 import { AudioCutterModal } from './components/AudioCutterModal';
 import { MediaPlayerModal } from './components/MediaPlayerModal';
 import { TelegramExportModal } from './components/TelegramExportModal';
+import { ToastContainer, ToastData } from './components/Toast';
+import { CommunityJoinBanner } from './components/CommunityJoinBanner';
+import { LogoStickerMakerModal } from './components/LogoStickerMakerModal';
+import { KeyboardShortcutsModal } from './components/KeyboardShortcutsModal';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import {
   VideoInfo,
   DownloadType,
@@ -32,6 +36,39 @@ import { signInWithPopup, signOut, onAuthStateChanged, User } from 'firebase/aut
 import { collection, addDoc, doc, query, orderBy, onSnapshot, deleteDoc, setDoc } from 'firebase/firestore';
 import { soundNotify } from './lib/soundNotify';
 import { downloadFileWithBlob } from './lib/downloadHelper';
+import {
+  exportAllDataAsJson,
+  parseAndValidateBackup,
+  syncAllDataToCloud,
+  saveAllDataLocally,
+} from './lib/dataBackup';
+
+// Helper to check if an error is network-related for Smart Retry
+const isNetworkError = (errMsg?: string): boolean => {
+  if (!errMsg) return false;
+  const msg = errMsg.toLowerCase();
+  return (
+    msg.includes('network') ||
+    msg.includes('connection') ||
+    msg.includes('timeout') ||
+    msg.includes('timed out') ||
+    msg.includes('socket') ||
+    msg.includes('econnreset') ||
+    msg.includes('etimedout') ||
+    msg.includes('econnrefused') ||
+    msg.includes('disconnected') ||
+    msg.includes('fragment') ||
+    msg.includes('temporary') ||
+    msg.includes('offline') ||
+    msg.includes('dns') ||
+    msg.includes('interrupted') ||
+    msg.includes('unreachable') ||
+    msg.includes('fetch failed') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('ssl') ||
+    msg.includes('handshake')
+  );
+};
 
 export default function App() {
   // App navigation state
@@ -86,11 +123,11 @@ export default function App() {
   });
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<'general' | 'cookies' | 'diagnostics' | 'telegram'>('general');
+  const [settingsTab, setSettingsTab] = useState<'general' | 'cookies' | 'diagnostics' | 'telegram' | 'data'>('general');
   const [settingsPlatform, setSettingsPlatform] = useState<string | undefined>(undefined);
 
   const handleOpenSettings = (
-    tab: 'general' | 'cookies' | 'diagnostics' | 'telegram' = 'general',
+    tab: 'general' | 'cookies' | 'diagnostics' | 'telegram' | 'data' = 'general',
     platform?: string
   ) => {
     setSettingsTab(tab);
@@ -123,6 +160,89 @@ export default function App() {
     setIsTelegramModalOpen(true);
   };
 
+  // Telegram Integration State & Global Notification Toasts
+  const [telegramConfig, setTelegramConfig] = useState<{
+    configured: boolean;
+    botTokenMasked?: string;
+    chatId?: string;
+    channelTitle?: string;
+    botUsername?: string;
+    channels?: Array<{ chatId: string; channelTitle?: string; enabled?: boolean }>;
+    autoSend?: boolean;
+    removeSizeLimit?: boolean;
+    maxUploadGb?: number;
+    uploadDeliveryMode?: string;
+  } | null>(null);
+
+  // Logo & Telegram Sticker Maker Studio state
+  const [isStickerMakerOpen, setIsStickerMakerOpen] = useState(false);
+
+  const [globalToasts, setGlobalToasts] = useState<ToastData[]>([]);
+
+  const addGlobalToast = useCallback(
+    (type: 'success' | 'error' | 'warning' | 'info', title: string, message: string, duration = 6000) => {
+      const newToast: ToastData = {
+        id: 'toast-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
+        type,
+        title,
+        message,
+        duration,
+      };
+      setGlobalToasts((prev) => [...prev, newToast]);
+    },
+    []
+  );
+
+  const dismissGlobalToast = useCallback((id: string) => {
+    setGlobalToasts((prev) => prev.filter((t) => t.id !== id));
+  }, []);
+
+  const fetchTelegramConfig = useCallback(async () => {
+    try {
+      const res = await fetch('/api/telegram/config');
+      if (res.ok) {
+        const data = await res.json();
+        setTelegramConfig(data);
+      }
+    } catch (err) {
+      console.error('Failed to query telegram config:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchTelegramConfig();
+  }, [fetchTelegramConfig]);
+
+  const handleToggleTelegramAutoSend = async (desired?: boolean) => {
+    try {
+      const nextVal = desired !== undefined ? desired : !telegramConfig?.autoSend;
+      const res = await fetch('/api/telegram/toggle-auto-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoSend: nextVal }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        setTelegramConfig((prev) => (prev ? { ...prev, autoSend: data.autoSend } : null));
+        if (data.autoSend) {
+          addGlobalToast(
+            'success',
+            'টেলিগ্রাম অটো-পোস্ট চালু (Active) 🚀',
+            `ভিডিও ডাউনলোড শেষ হলেই স্বয়ংক্রিয়ভাবে "${telegramConfig?.channelTitle || telegramConfig?.chatId || 'চ্যানেলে'}" পোস্ট হবে!`
+          );
+        } else {
+          addGlobalToast(
+            'info',
+            'অটো-পোস্ট বন্ধ (Off)',
+            'টেলিগ্রামে স্বয়ংক্রিয় পোস্ট নিষ্ক্রিয় করা হয়েছে।'
+          );
+        }
+      }
+    } catch (e: any) {
+      addGlobalToast('error', 'Error', 'Failed to toggle auto-post: ' + e.message);
+    }
+  };
+
   const handleUpdateSettings = (updates: Partial<FluxLoadSettings>) => {
     setSettings((prev) => {
       const next = { ...prev, ...updates };
@@ -145,6 +265,8 @@ export default function App() {
   const [activeDownloadUrl, setActiveDownloadUrl] = useState<string>('');
   const [taskId, setTaskId] = useState<string | null>(null);
   const [lastSingleConfig, setLastSingleConfig] = useState<SingleDownloadConfig | null>(null);
+  const [smartRetryAttempts, setSmartRetryAttempts] = useState<number>(0);
+  const smartRetryTimerRef = useRef<NodeJS.Timeout | null>(null);
   const [taskStatus, setTaskStatus] = useState<TaskStatus>({
     id: '',
     status: 'queued',
@@ -161,10 +283,140 @@ export default function App() {
   // Modals and system info
   const [isErrorTestModalOpen, setIsErrorTestModalOpen] = useState(false);
   const [isHistoryOpen, setIsHistoryOpen] = useState(false);
-  const [isMobileGuideOpen, setIsMobileGuideOpen] = useState(false);
+  const [isShortcutsModalOpen, setIsShortcutsModalOpen] = useState(false);
   const [systemStatus, setSystemStatus] = useState<any | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [history, setHistory] = useState<any[]>([]);
+
+  // Global Keyboard Shortcuts (Power User Accessibility)
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      const isMac = typeof navigator !== 'undefined' && /Mac|iPod|iPhone|iPad/.test(navigator.platform);
+      const isMod = isMac ? e.metaKey : e.ctrlKey;
+      const target = e.target as HTMLElement | null;
+      const isInput =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable);
+
+      // Escape: Close any open modal
+      if (e.key === 'Escape') {
+        if (isShortcutsModalOpen) {
+          setIsShortcutsModalOpen(false);
+          return;
+        }
+        if (isHistoryOpen) {
+          setIsHistoryOpen(false);
+          return;
+        }
+        if (isSettingsOpen) {
+          setIsSettingsOpen(false);
+          return;
+        }
+        if (isTelegramModalOpen) {
+          setIsTelegramModalOpen(false);
+          return;
+        }
+        if (isAudioCutterOpen) {
+          setIsAudioCutterOpen(false);
+          return;
+        }
+        if (isMediaPlayerOpen) {
+          setIsMediaPlayerOpen(false);
+          return;
+        }
+        if (isStickerMakerOpen) {
+          setIsStickerMakerOpen(false);
+          return;
+        }
+        if (isErrorTestModalOpen) {
+          setIsErrorTestModalOpen(false);
+          return;
+        }
+      }
+
+      // Mod + S: Toggle Settings (Prevent default browser save webpage)
+      if (isMod && (e.key === 's' || e.key === 'S')) {
+        e.preventDefault();
+        setIsSettingsOpen((prev) => !prev);
+        return;
+      }
+
+      // Mod + H: Toggle History (Prevent default browser history window)
+      if (isMod && (e.key === 'h' || e.key === 'H')) {
+        e.preventDefault();
+        setIsHistoryOpen((prev) => !prev);
+        return;
+      }
+
+      // Mod + B: Toggle Batch Mode
+      if (isMod && (e.key === 'b' || e.key === 'B')) {
+        e.preventDefault();
+        setAppMode((prev) => (prev === 'batch' ? 'single' : 'batch'));
+        return;
+      }
+
+      // Mod + M: Toggle Social Reels Mode
+      if (isMod && (e.key === 'm' || e.key === 'M')) {
+        e.preventDefault();
+        setAppMode((prev) => (prev === 'social' ? 'single' : 'social'));
+        return;
+      }
+
+      // Mod + Shift + T: Open Telegram Settings
+      if (isMod && e.shiftKey && (e.key === 't' || e.key === 'T')) {
+        e.preventDefault();
+        handleOpenSettings('telegram');
+        return;
+      }
+
+      // Mod + K or '/' (when not typing in an input): Focus URL Input
+      if ((isMod && (e.key === 'k' || e.key === 'K')) || (!isMod && e.key === '/' && !isInput)) {
+        e.preventDefault();
+        const inputEl = document.getElementById('fluxload-main-url-input') as HTMLInputElement | null;
+        if (inputEl) {
+          inputEl.focus();
+          inputEl.select();
+        }
+        return;
+      }
+
+      // '?' (Shift + /) or Mod + /: Toggle Keyboard Shortcuts Modal (when not in input)
+      if ((e.key === '?' && !isInput) || (isMod && e.key === '/')) {
+        e.preventDefault();
+        setIsShortcutsModalOpen((prev) => !prev);
+        return;
+      }
+
+      // Mod + Enter: Trigger Download
+      if (isMod && e.key === 'Enter') {
+        e.preventDefault();
+        const submitBtn = document.querySelector('form button[type="submit"]') as HTMLButtonElement | null;
+        if (submitBtn && !submitBtn.disabled) {
+          submitBtn.click();
+        } else {
+          const primaryBtn = document.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+          if (primaryBtn && !primaryBtn.disabled) {
+            primaryBtn.click();
+          }
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, [
+    isShortcutsModalOpen,
+    isHistoryOpen,
+    isSettingsOpen,
+    isTelegramModalOpen,
+    isAudioCutterOpen,
+    isMediaPlayerOpen,
+    isStickerMakerOpen,
+    isErrorTestModalOpen,
+    appMode,
+  ]);
 
   // Auth observer
   useEffect(() => {
@@ -227,6 +479,62 @@ export default function App() {
     }
   };
 
+  // Data Backup, Cloud Sync & All Data Save Handlers
+  const handleExportAllData = async () => {
+    let tgConfig: any = null;
+    try {
+      const res = await fetch('/api/telegram/config');
+      if (res.ok) tgConfig = await res.json();
+    } catch {}
+    exportAllDataAsJson(settings, history, tgConfig);
+  };
+
+  const handleImportAllData = async (jsonStr: string) => {
+    const res = parseAndValidateBackup(jsonStr);
+    if (!res.success) {
+      return { success: false, error: res.error || 'Failed to parse backup' };
+    }
+    if (res.settings) {
+      handleUpdateSettings(res.settings);
+    }
+    if (res.history && res.history.length > 0) {
+      setHistory(res.history);
+      try {
+        localStorage.setItem('fluxload_download_history', JSON.stringify(res.history));
+      } catch {}
+      if (user) {
+        for (const item of res.history) {
+          try {
+            const colRef = collection(db, 'users', user.uid, 'downloads');
+            await addDoc(colRef, {
+              ...item,
+              userId: user.uid,
+              createdAt: item.createdAt || new Date().toISOString(),
+            });
+          } catch {}
+        }
+      }
+    }
+    if (res.telegramConfig?.chatId) {
+      try {
+        localStorage.setItem('fluxload_telegram_config', JSON.stringify(res.telegramConfig));
+      } catch {}
+    }
+    return { success: true };
+  };
+
+  const handleSyncAllData = async () => {
+    if (!user) {
+      return { success: false, syncedItemsCount: 0, error: 'User is not signed in' };
+    }
+    let tgConfig: any = null;
+    try {
+      const res = await fetch('/api/telegram/config');
+      if (res.ok) tgConfig = await res.json();
+    } catch {}
+    return await syncAllDataToCloud(user.uid, settings, history, tgConfig);
+  };
+
   // Check system status on mount
   useEffect(() => {
     fetch('/api/system-status')
@@ -280,8 +588,16 @@ export default function App() {
 
   const handleStartSingleDownload = async (
     url: string,
-    config: SingleDownloadConfig
+    config: SingleDownloadConfig,
+    isRetryAttempt = false
   ) => {
+    if (smartRetryTimerRef.current) {
+      clearTimeout(smartRetryTimerRef.current);
+      smartRetryTimerRef.current = null;
+    }
+    if (!isRetryAttempt) {
+      setSmartRetryAttempts(0);
+    }
     setIsLoading(true);
     setError(null);
     setActiveDownloadUrl(url);
@@ -316,7 +632,7 @@ export default function App() {
         speed: '0 KB/s',
         downloadedSize: '0 MB',
         totalSize: 'Detecting media...',
-        eta: 'Starting...',
+        eta: isRetryAttempt ? `Reconnecting (${smartRetryAttempts + 1}/${settings.smartRetryMaxAttempts ?? 3})...` : 'Starting...',
       });
 
       // 2. Fetch metadata asynchronously in background for title & preview
@@ -358,6 +674,11 @@ export default function App() {
   };
 
   const handleCancelSingle = async () => {
+    if (smartRetryTimerRef.current) {
+      clearTimeout(smartRetryTimerRef.current);
+      smartRetryTimerRef.current = null;
+    }
+    setSmartRetryAttempts(0);
     if (!taskId) return;
     if (taskId.startsWith('test-err-')) {
       setTaskStatus((prev) => ({ ...prev, status: 'cancelled' }));
@@ -372,6 +693,11 @@ export default function App() {
   };
 
   const handleRetrySingle = () => {
+    if (smartRetryTimerRef.current) {
+      clearTimeout(smartRetryTimerRef.current);
+      smartRetryTimerRef.current = null;
+    }
+    setSmartRetryAttempts(0);
     if (activeDownloadUrl && lastSingleConfig) {
       handleStartSingleDownload(activeDownloadUrl, lastSingleConfig);
     } else if (activeDownloadUrl) {
@@ -384,6 +710,11 @@ export default function App() {
   };
 
   const handleResetSingle = () => {
+    if (smartRetryTimerRef.current) {
+      clearTimeout(smartRetryTimerRef.current);
+      smartRetryTimerRef.current = null;
+    }
+    setSmartRetryAttempts(0);
     setActiveDownloadUrl('');
     setVideoInfo(null);
     setTaskId(null);
@@ -437,12 +768,56 @@ export default function App() {
             if (!isSubscribed) return;
             setTaskStatus(statusData);
 
-            if (
-              statusData.status === 'completed' ||
-              statusData.status === 'done' ||
-              statusData.status === 'error' ||
-              statusData.status === 'cancelled'
-            ) {
+            if (statusData.status === 'completed' || statusData.status === 'done') {
+              setSmartRetryAttempts(0);
+              return;
+            }
+
+            if (statusData.status === 'error') {
+              const isNetworkFail = isNetworkError(statusData.error);
+              const maxAttempts = settings.smartRetryMaxAttempts ?? 3;
+              const isSmartRetryEnabled = settings.smartRetryEnabled !== false;
+
+              if (isSmartRetryEnabled && isNetworkFail && smartRetryAttempts < maxAttempts && activeDownloadUrl) {
+                const nextAttempt = smartRetryAttempts + 1;
+                addGlobalToast(
+                  'info',
+                  `Smart Retry Active (${nextAttempt}/${maxAttempts})`,
+                  `Network issue detected: "${statusData.error || 'Connection dropped'}". Auto-retrying download in 2.5 seconds...`,
+                  5000
+                );
+                setTaskStatus((prev) => ({
+                  ...prev,
+                  status: 'downloading',
+                  speed: 'Reconnecting...',
+                  eta: `Auto-retrying (${nextAttempt}/${maxAttempts})...`,
+                }));
+
+                if (smartRetryTimerRef.current) clearTimeout(smartRetryTimerRef.current);
+                smartRetryTimerRef.current = setTimeout(() => {
+                  handleStartSingleDownload(
+                    activeDownloadUrl,
+                    lastSingleConfig || {
+                      type: settings.defaultType || 'video',
+                      quality: settings.defaultQuality || '720p',
+                      format: settings.defaultFormat || 'mp4',
+                    },
+                    true
+                  );
+                }, 2500);
+                return;
+              } else if (isSmartRetryEnabled && isNetworkFail && smartRetryAttempts >= maxAttempts) {
+                addGlobalToast(
+                  'warning',
+                  'Smart Retry Limit Reached',
+                  `Automatic retries reached maximum limit (${maxAttempts}/${maxAttempts}). Please verify your network and retry manually.`,
+                  7000
+                );
+              }
+              return;
+            }
+
+            if (statusData.status === 'cancelled') {
               return;
             }
           }
@@ -484,6 +859,39 @@ export default function App() {
         // If server is temporarily rebooting or network blipped, retry gracefully without throwing or spamming console
         if (consecutiveNetworkErrors >= 6) {
           if (isSubscribed) {
+            const maxAttempts = settings.smartRetryMaxAttempts ?? 3;
+            const isSmartRetryEnabled = settings.smartRetryEnabled !== false;
+
+            if (isSmartRetryEnabled && smartRetryAttempts < maxAttempts && activeDownloadUrl) {
+              const nextAttempt = smartRetryAttempts + 1;
+              addGlobalToast(
+                'info',
+                `Smart Retry (${nextAttempt}/${maxAttempts})`,
+                `Connection interrupted. Auto-retrying download in 3 seconds...`,
+                5000
+              );
+              setTaskStatus((prev) => ({
+                ...prev,
+                status: 'downloading',
+                speed: 'Reconnecting...',
+                eta: `Auto-retrying (${nextAttempt}/${maxAttempts})...`,
+              }));
+
+              if (smartRetryTimerRef.current) clearTimeout(smartRetryTimerRef.current);
+              smartRetryTimerRef.current = setTimeout(() => {
+                handleStartSingleDownload(
+                  activeDownloadUrl,
+                  lastSingleConfig || {
+                    type: settings.defaultType || 'video',
+                    quality: settings.defaultQuality || '720p',
+                    format: settings.defaultFormat || 'mp4',
+                  },
+                  true
+                );
+              }, 3000);
+              return;
+            }
+
             setTaskStatus((prev) => {
               if (prev.status === 'completed' || prev.status === 'done' || prev.status === 'cancelled') {
                 return prev;
@@ -509,8 +917,9 @@ export default function App() {
       isSubscribed = false;
       abortController.abort();
       if (pollTimeout) clearTimeout(pollTimeout);
+      if (smartRetryTimerRef.current) clearTimeout(smartRetryTimerRef.current);
     };
-  }, [taskId]);
+  }, [taskId, smartRetryAttempts, settings.smartRetryEnabled, settings.smartRetryMaxAttempts, activeDownloadUrl, lastSingleConfig, addGlobalToast]);
 
   // Automatic browser download trigger & notification on completion (NO Save Page, NO 2nd Save button)
   useEffect(() => {
@@ -654,12 +1063,96 @@ export default function App() {
         };
         saveFirestore();
       }
+
+      // 3. AUTOMATIC POST TO TELEGRAM CHANNEL (Auto upload to @FluxLoad & all configured channels simultaneously)
+      (async () => {
+        try {
+          const activeChannels = telegramConfig?.channels?.filter(c => c.enabled !== false) || [];
+          const activeTargets = activeChannels.map(c => c.chatId);
+          if (!activeTargets.includes('@FluxLoad')) {
+            activeTargets.unshift('@FluxLoad');
+          }
+          const channelNames = activeChannels.length > 0
+            ? activeChannels.map(c => c.channelTitle || c.chatId).join(', ')
+            : '@FluxLoad';
+
+          setTaskStatus((prev) => ({
+            ...prev,
+            telegramStatus: 'uploading',
+          }));
+
+          addGlobalToast(
+            'info',
+            '🚀 Telegram Auto-Post',
+            `"${recordTitle}" ভিডিওটি একই সাথে সকল Telegram চ্যানেল (${channelNames})-এ আপলোড হচ্ছে...`,
+            4000
+          );
+
+          const postRes = await fetch('/api/telegram/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              taskId,
+              downloadUrl: taskStatus.downloadUrl,
+              caption: recordTitle,
+              targetChats: activeTargets,
+            }),
+          });
+
+          const postData = await postRes.json();
+          if (postRes.ok && postData.success) {
+            setTaskStatus((prev) => ({
+              ...prev,
+              telegramStatus: 'completed',
+              telegramPostUrl: postData.channelPostUrl,
+              telegramPostUrls: postData.channelPostUrls,
+              telegramChannels: postData.results,
+              telegramSuccessCount: postData.successCount,
+              telegramTotalTargets: postData.totalTargets,
+              telegramMessage: postData.message,
+            }));
+
+            const countMsg = postData.totalTargets && postData.totalTargets > 1
+              ? `${postData.successCount}/${postData.totalTargets}টি চ্যানেলে (${channelNames})`
+              : '@FluxLoad চ্যানেলে';
+            addGlobalToast(
+              'success',
+              '✅ Auto-Posted to Telegram! 🎬',
+              `ভিডিওটি ${countMsg} সফলভাবে আপলোড হয়েছে (${postData.formattedSize || ''})!`,
+              8000
+            );
+          } else if (postData.botNeedsAdmin) {
+            setTaskStatus((prev) => ({
+              ...prev,
+              telegramStatus: 'forbidden_admin_needed',
+              telegramChannels: postData.results,
+              telegramError: postData.error || postData.message,
+            }));
+            addGlobalToast(
+              'warning',
+              '⚠️ Telegram Bot Admin Needed',
+              `বট @${telegramConfig?.botUsername || 'black_world722_bot'} টেলিগ্রাম চ্যানেলে Administrator হিসেবে নেই। চ্যানেলে বটকে Administrator করুন (Post Messages পারমিশন দিয়ে)।`,
+              10000
+            );
+          } else {
+            setTaskStatus((prev) => ({
+              ...prev,
+              telegramStatus: 'error',
+              telegramChannels: postData.results,
+              telegramError: postData.error || postData.message,
+            }));
+            console.warn('Telegram Auto-Post notice:', postData.error);
+          }
+        } catch (err: any) {
+          console.warn('Auto Telegram send failed:', err);
+        }
+      })();
     } else if (taskStatus.status === 'error') {
       if (settings?.playNotificationSound !== false) {
         soundNotify.playErrorSound();
       }
     }
-  }, [taskStatus.status, taskId, videoInfo, user, activeDownloadUrl, settings, lastSingleConfig, taskStatus.filename, taskStatus.downloadUrl]);
+  }, [taskStatus.status, taskId, videoInfo, user, activeDownloadUrl, settings, lastSingleConfig, taskStatus.filename, taskStatus.downloadUrl, telegramConfig, addGlobalToast]);
 
   // ==========================================
   // MULTIPLE / BATCH DOWNLOAD HANDLERS
@@ -1079,7 +1572,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-white">
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-cyan-500 selection:text-white w-full max-w-[100vw] overflow-x-hidden relative">
       <Header
         onOpenErrorTest={() => setIsErrorTestModalOpen(true)}
         user={user}
@@ -1087,16 +1580,25 @@ export default function App() {
         onLogout={handleLogout}
         onOpenHistory={() => setIsHistoryOpen(true)}
         onOpenSettings={handleOpenSettings}
-        onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
+        onOpenStickerMaker={() => setIsStickerMakerOpen(true)}
+        onOpenShortcuts={() => setIsShortcutsModalOpen(true)}
         historyCount={history.length}
         currentMode={appMode}
         onModeChange={(m) => setAppMode(m)}
         batchCount={batchItems.length}
       />
 
-      <main className="flex-1 flex flex-col items-center justify-center p-4 md:p-8 relative">
+      {/* Official FluxLoad Telegram Channel Community Banner (t.me/FluxLoad) */}
+      <CommunityJoinBanner
+        onOpenStickerMaker={() => setIsStickerMakerOpen(true)}
+        onOpenTelegramSettings={() => handleOpenSettings('telegram')}
+      />
+
+      <main className="flex-1 flex flex-col items-center justify-center p-3 sm:p-4 md:p-8 pb-24 md:pb-8 relative w-full max-w-[100vw] overflow-x-hidden">
         {/* Ambient background glow */}
-        <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[700px] bg-cyan-500/5 rounded-full blur-[140px] pointer-events-none" />
+        <div className="absolute inset-0 overflow-hidden pointer-events-none -z-0">
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] max-w-full h-[700px] bg-cyan-500/5 rounded-full blur-[140px]" />
+        </div>
 
         <div className="w-full max-w-4xl z-10">
           {systemStatus && !systemStatus.installed && (
@@ -1131,6 +1633,8 @@ export default function App() {
               onRetrySingle={handleRetrySingle}
               onResetSingle={handleResetSingle}
               autoSaveStatus={autoSaveStatus}
+              telegramConfig={telegramConfig}
+              onToggleTelegramAutoSend={handleToggleTelegramAutoSend}
             />
           )}
 
@@ -1233,7 +1737,6 @@ export default function App() {
 
       <Footer
         onOpenDiagnostics={() => handleOpenSettings('diagnostics')}
-        onOpenMobileGuide={() => setIsMobileGuideOpen(true)}
       />
 
       {isSettingsOpen && (
@@ -1248,6 +1751,11 @@ export default function App() {
           onResetSettings={handleResetSettings}
           initialTab={settingsTab}
           initialPlatform={settingsPlatform}
+          user={user}
+          history={history}
+          onExportAllData={handleExportAllData}
+          onImportAllData={handleImportAllData}
+          onSyncAllData={handleSyncAllData}
         />
       )}
 
@@ -1285,6 +1793,8 @@ export default function App() {
               format: settings.defaultFormat || 'mp4',
             });
           }}
+          onExportAllData={handleExportAllData}
+          onSyncAllData={handleSyncAllData}
           isSignedIn={!!user}
           onSignIn={handleLogin}
         />
@@ -1330,11 +1840,38 @@ export default function App() {
         />
       )}
 
-      {/* Mobile Troubleshooting & Guide Modal */}
-      <MobileGuideModal
-        isOpen={isMobileGuideOpen}
-        onClose={() => setIsMobileGuideOpen(false)}
+      {/* FluxLoad Logo & Telegram 512x512 Sticker Maker Studio (.size remove) */}
+      <LogoStickerMakerModal
+        isOpen={isStickerMakerOpen}
+        onClose={() => setIsStickerMakerOpen(false)}
+        telegramConfig={telegramConfig}
+        onShowToast={(msg, type) =>
+          addGlobalToast(
+            type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'success',
+            'Logo & Sticker Studio',
+            msg
+          )
+        }
       />
+
+      {/* Keyboard Shortcuts Cheat Sheet Modal */}
+      <KeyboardShortcutsModal
+        isOpen={isShortcutsModalOpen}
+        onClose={() => setIsShortcutsModalOpen(false)}
+      />
+
+      {/* Mobile Bottom Navigation Bar */}
+      <MobileBottomNav
+        currentMode={appMode}
+        onModeChange={(m) => setAppMode(m)}
+        onOpenHistory={() => setIsHistoryOpen(true)}
+        historyCount={history.length}
+        batchCount={batchItems.length}
+        onOpenSettings={(tab) => handleOpenSettings(tab)}
+      />
+
+      {/* Global Real-time Toasts (Telegram Auto-Post & Downloads) */}
+      <ToastContainer toasts={globalToasts} onDismiss={dismissGlobalToast} />
     </div>
   );
 }

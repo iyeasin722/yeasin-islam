@@ -15,7 +15,8 @@ import {
   Share2,
   ExternalLink,
   Film,
-  Music
+  Music,
+  Send,
 } from 'lucide-react';
 import { downloadFileWithBlob } from '../lib/downloadHelper';
 
@@ -323,6 +324,35 @@ export function MediaPlayerModal({
                 <Download className="w-3.5 h-3.5" />
                 <span>Save</span>
               </button>
+            </div>
+
+            {/* Official Telegram Channel Link Under Video */}
+            <div className="mt-3 p-2.5 bg-gradient-to-r from-sky-950/40 via-slate-900 to-sky-950/40 border border-sky-500/30 rounded-xl flex items-center justify-between gap-2 shadow-sm">
+              <div className="flex items-center space-x-2 min-w-0">
+                <div className="w-6 h-6 rounded-lg bg-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+                  <Send className="w-3.5 h-3.5" />
+                </div>
+                <div className="min-w-0 flex items-center gap-2 flex-wrap">
+                  <span className="text-[11px] font-semibold text-slate-300">Telegram:</span>
+                  <a
+                    href="https://t.me/FluxLoad"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs font-bold text-sky-400 hover:text-sky-300 font-mono hover:underline"
+                  >
+                    https://t.me/FluxLoad
+                  </a>
+                </div>
+              </div>
+              <a
+                href="https://t.me/FluxLoad"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-sm"
+              >
+                <Send className="w-3 h-3" />
+                <span>Join</span>
+              </a>
             </div>
           </div>
         </div>

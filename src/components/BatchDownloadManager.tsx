@@ -41,6 +41,7 @@ import {
   Archive,
   FileUp,
   ListPlus,
+  Send,
 } from 'lucide-react';
 import { downloadFileWithBlob } from '../lib/downloadHelper';
 
@@ -1726,6 +1727,19 @@ export const BatchDownloadManager: React.FC<BatchDownloadManagerProps> = ({
                       </span>
                     </div>
                   )}
+
+                  <div className="mt-1.5 flex items-center gap-1.5 text-[10px]">
+                    <a
+                      href="https://t.me/FluxLoad"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sky-400 hover:text-sky-300 font-mono font-bold hover:underline inline-flex items-center gap-1"
+                      title="FluxLoad Official Telegram Channel"
+                    >
+                      <Send className="w-2.5 h-2.5" />
+                      https://t.me/FluxLoad
+                    </a>
+                  </div>
                 </div>
 
                 {/* Right Action Buttons */}
@@ -1776,6 +1790,40 @@ export const BatchDownloadManager: React.FC<BatchDownloadManagerProps> = ({
         })}
       </div>
       )}
+
+      {/* Official Telegram Channel Link Under Batch Videos */}
+      <div className="mt-4 p-3 bg-gradient-to-r from-sky-950/40 via-slate-900 to-sky-950/40 border border-sky-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center space-x-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+            <Send className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5 flex-wrap">
+              <span>Official Telegram:</span>
+              <a
+                href="https://t.me/FluxLoad"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sky-400 hover:text-sky-300 font-mono hover:underline font-bold"
+              >
+                https://t.me/FluxLoad
+              </a>
+            </div>
+            <p className="text-[11px] text-slate-400 truncate">
+              সব ভিডিও ডাউনলোড ও স্টিকারের জন্য আমাদের টেলিগ্রাম চ্যানেলে জয়েন করুন
+            </p>
+          </div>
+        </div>
+        <a
+          href="https://t.me/FluxLoad"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-md shadow-sky-500/20 cursor-pointer"
+        >
+          <Send className="w-3 h-3" />
+          <span>Join Channel</span>
+        </a>
+      </div>
 
       {/* Modal to Add More URLs with Real-Time URL Validation */}
       {showAddModal && (

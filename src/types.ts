@@ -136,13 +136,82 @@ export interface BatchSettings {
   autoTriggerBrowserDownload: boolean;
 }
 
+export interface TelegramChannelItem {
+  chatId: string;
+  channelTitle?: string;
+  enabled?: boolean;
+}
+
 export interface TelegramConfig {
   botToken?: string;
   chatId?: string;
   channelName?: string;
   channelTitle?: string;
+  channels?: TelegramChannelItem[];
   botUsername?: string;
   autoSendCompleted?: boolean;
+  maxUploadGb?: number;
+  uploadDeliveryMode?: 'smart_10gb' | 'direct_50mb' | 'local_2gb';
+  localApiServerUrl?: string;
+}
+
+export interface TelegramHealthData {
+  healthy: boolean;
+  configured: boolean;
+  status: 'optimal' | 'good' | 'degraded' | 'throttled' | 'unconfigured';
+  pingMs: number;
+  gatewayUrl: string;
+  sslSecured: boolean;
+  protocol: string;
+  bot?: {
+    id?: number;
+    username?: string;
+    firstName?: string;
+    canJoinGroups?: boolean;
+    canReadAllGroupMessages?: boolean;
+    supportsInlineQueries?: boolean;
+  } | null;
+  channel?: {
+    id?: string;
+    title?: string;
+    username?: string;
+    type?: string;
+    description?: string;
+    membersCount?: number;
+  } | null;
+  channels?: TelegramChannelItem[];
+  permissions?: {
+    canPostMessages: boolean;
+    canEditMessages: boolean;
+    canSendMedia: boolean;
+    canSendDocuments: boolean;
+    canAddWebPagePreviews: boolean;
+    isAdministrator: boolean;
+  };
+  rateLimit: {
+    status: 'optimal' | 'warning' | 'throttled';
+    globalLimitPerSec: number;
+    channelLimitPerMin: number;
+    requestsLastMinute: number;
+    requestsLastSecond: number;
+    remainingBurst: number;
+    floodWaitSeconds: number;
+    safeHeadroomPercent: number;
+    antiFloodActive: boolean;
+    lastRequestTime: string | null;
+  };
+  uploadLimits: {
+    standardBotLimitMb: number;
+    localBotLimitMb: number;
+    ultraCloudStreamLimitGb: number;
+    activeMaxLimitGb: number;
+    upload10GbReady: boolean;
+    deliveryMode: string;
+    customApiUrl?: string | null;
+    supportedTypes: string[];
+  };
+  error?: string | null;
+  serverTime: string;
 }
 
 export interface TelegramSendResult {
@@ -151,9 +220,23 @@ export interface TelegramSendResult {
   channelPostUrl?: string;
   channelTitle?: string;
   fileSizeMb?: number;
+  formattedSize?: string;
   warning?: string;
   shareUrl?: string;
   error?: string;
+  botNeedsAdmin?: boolean;
+  adminAddUrl?: string;
+  totalTargets?: number;
+  successCount?: number;
+  failedCount?: number;
+  channelPostUrls?: string[];
+  results?: Array<{
+    targetChat: string;
+    success: boolean;
+    channelPostUrl?: string;
+    error?: string;
+    channelTitle?: string;
+  }>;
 }
 
 export interface FluxLoadSettings {
@@ -171,6 +254,8 @@ export interface FluxLoadSettings {
   bdixFirstSpeed: boolean;
   defaultRateLimit?: string; // 'unlimited' | '1M' | '2M' | '5M' | '10M'
   telegram?: TelegramConfig;
+  smartRetryEnabled?: boolean;
+  smartRetryMaxAttempts?: number;
 }
 
 export const DEFAULT_SETTINGS: FluxLoadSettings = {
@@ -187,6 +272,8 @@ export const DEFAULT_SETTINGS: FluxLoadSettings = {
   maxFileSizeGb: 2,
   bdixFirstSpeed: true,
   defaultRateLimit: 'unlimited',
+  smartRetryEnabled: true,
+  smartRetryMaxAttempts: 3,
 };
 
 export interface LocalConversionJob {
@@ -217,6 +304,22 @@ export interface TaskStatus {
   botBlocked?: boolean;
   isInstagramError?: boolean;
   platform?: string;
+  telegramStatus?: 'idle' | 'uploading' | 'completed' | 'forbidden_admin_needed' | 'error';
+  telegramPostUrl?: string;
+  telegramPostUrls?: string[];
+  telegramChannels?: Array<{
+    targetChat: string;
+    channelTitle?: string;
+    success: boolean;
+    channelPostUrl?: string;
+    formattedSize?: string;
+    error?: string;
+    botNeedsAdmin?: boolean;
+  }>;
+  telegramSuccessCount?: number;
+  telegramTotalTargets?: number;
+  telegramMessage?: string;
+  telegramError?: string;
 }
 
 export type AppNavMode = 'single' | 'social' | 'batch' | 'cutter' | 'converter';

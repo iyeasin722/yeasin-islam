@@ -16,6 +16,10 @@ import {
   Music,
   Lock,
   Sparkles,
+  Save,
+  Radio,
+  Plus,
+  Trash2,
 } from 'lucide-react';
 import { TelegramSendResult } from '../types';
 
@@ -50,10 +54,18 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
   const [chatIdInput, setChatIdInput] = useState('');
   const [customCaption, setCustomCaption] = useState(title);
 
+  // Multi-Channel State
+  const [channels, setChannels] = useState<Array<{ chatId: string; channelTitle?: string; enabled?: boolean }>>([]);
+  const [selectedChannels, setSelectedChannels] = useState<string[]>(['@FluxLoad']);
+  const [newChannelInput, setNewChannelInput] = useState('');
+  const [isAddingChannel, setIsAddingChannel] = useState(false);
+  const [showAddChannelInput, setShowAddChannelInput] = useState(false);
+
   const [isCheckingConfig, setIsCheckingConfig] = useState(true);
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [warningNotice, setWarningNotice] = useState<string | null>(null);
   const [successResult, setSuccessResult] = useState<TelegramSendResult | null>(null);
   const [showGuide, setShowGuide] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
@@ -63,6 +75,7 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
       fetchConfig();
       setCustomCaption(title);
       setErrorMsg(null);
+      setWarningNotice(null);
       setSuccessResult(null);
     }
   }, [isOpen, title]);
@@ -78,6 +91,12 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
           setChannelTitle(data.channelTitle || data.chatId);
           setChatId(data.chatId || '');
           setBotUsername(data.botUsername || '');
+          const chanList = (Array.isArray(data.channels) && data.channels.length > 0)
+            ? data.channels
+            : [{ chatId: '@FluxLoad', channelTitle: 'FluxLoad (Official)', enabled: true }];
+          setChannels(chanList);
+          const activeChatIds = chanList.filter((c: any) => c.enabled !== false).map((c: any) => c.chatId);
+          setSelectedChannels(activeChatIds.length > 0 ? activeChatIds : ['@FluxLoad']);
         }
       }
     } catch {
@@ -87,13 +106,62 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
     }
   };
 
-  const handleConnectAndSave = async () => {
+  const handleAddChannel = async () => {
+    if (!newChannelInput.trim()) return;
+    setIsAddingChannel(true);
+    setErrorMsg(null);
+    try {
+      const res = await fetch('/api/telegram/channels/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: newChannelInput.trim() }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setNewChannelInput('');
+        setShowAddChannelInput(false);
+        if (data.channels) {
+          setChannels(data.channels);
+          const newChatId = data.channel?.chatId || newChannelInput.trim();
+          setSelectedChannels((prev) => Array.from(new Set([...prev, newChatId])));
+        }
+      } else {
+        setErrorMsg(data.error || 'চ্যানেল যুক্ত করা যায়নি।');
+      }
+    } catch (e: any) {
+      setErrorMsg(e.message || 'Error adding channel');
+    } finally {
+      setIsAddingChannel(false);
+    }
+  };
+
+  const handleToggleChannelSelection = (targetChatId: string) => {
+    setSelectedChannels((prev) => {
+      if (prev.includes(targetChatId)) {
+        if (prev.length === 1) return prev; // Keep at least one
+        return prev.filter((c) => c !== targetChatId);
+      } else {
+        return [...prev, targetChatId];
+      }
+    });
+  };
+
+  const handleSelectAllChannels = () => {
+    if (selectedChannels.length === channels.length) {
+      setSelectedChannels(['@FluxLoad']);
+    } else {
+      setSelectedChannels(channels.map((c) => c.chatId));
+    }
+  };
+
+  const handleConnectAndSave = async (forceDirect = false) => {
     if (!botTokenInput.trim() || !chatIdInput.trim()) {
       setErrorMsg('Please enter both your Bot Token and Channel Username / ID.');
       return;
     }
     setIsConnecting(true);
     setErrorMsg(null);
+    setWarningNotice(null);
     try {
       const res = await fetch('/api/telegram/config', {
         method: 'POST',
@@ -101,6 +169,7 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
         body: JSON.stringify({
           botToken: botTokenInput.trim(),
           chatId: chatIdInput.trim(),
+          forceSave: forceDirect,
         }),
       });
       const data = await res.json();
@@ -111,6 +180,19 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
         setBotUsername(data.botUsername || '');
         setBotTokenInput('');
         setChatIdInput('');
+        if (data.isWarning || data.warning) {
+          setWarningNotice(data.warning || data.message);
+        }
+        try {
+          localStorage.setItem('fluxload_telegram_config', JSON.stringify({
+            chatId: data.chatId || chatIdInput.trim(),
+            channelTitle: data.channelTitle,
+            botUsername: data.botUsername,
+            configured: true,
+            savedAt: new Date().toISOString(),
+          }));
+        } catch {}
+        fetchConfig();
       } else {
         setErrorMsg(data.error || 'Failed to connect bot to channel.');
       }
@@ -127,6 +209,7 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
     setSuccessResult(null);
 
     try {
+      const targets = selectedChannels.length > 0 ? selectedChannels : ['@FluxLoad'];
       const res = await fetch('/api/telegram/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -134,13 +217,14 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
           taskId,
           downloadUrl,
           caption: customCaption.trim() || title,
+          targetChats: targets,
         }),
       });
       const data = await res.json();
       if (res.ok && data.success) {
         setSuccessResult(data);
       } else {
-        setErrorMsg(data.error || 'Failed to send media to Telegram.');
+        setErrorMsg(data.error || data.message || 'Failed to send media to Telegram.');
       }
     } catch (e: any) {
       setErrorMsg(e.message || 'Error occurred while sending to Telegram.');
@@ -215,30 +299,134 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
                   {fileSize}
                 </span>
               )}
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300 font-mono font-bold flex items-center gap-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                10 GB Ready
+              </span>
             </div>
           </div>
         </div>
 
+        {/* Official Telegram Channel Link Under Media Preview */}
+        <div className="mb-4 p-2.5 bg-gradient-to-r from-sky-950/40 via-slate-900 to-sky-950/40 border border-sky-500/30 rounded-xl flex items-center justify-between gap-2 shadow-sm">
+          <div className="flex items-center space-x-2 min-w-0">
+            <div className="w-7 h-7 rounded-lg bg-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+              <Send className="w-3.5 h-3.5" />
+            </div>
+            <div className="min-w-0">
+              <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5 flex-wrap">
+                <span>Official Channel:</span>
+                <a
+                  href="https://t.me/FluxLoad"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sky-400 hover:text-sky-300 font-mono hover:underline font-bold"
+                >
+                  https://t.me/FluxLoad
+                </a>
+              </div>
+              <p className="text-[10px] text-slate-400 truncate">
+                সব ভিডিও আপডেট ও নোটিসের জন্য চ্যানেলে যুক্ত থাকুন
+              </p>
+            </div>
+          </div>
+          <a
+            href="https://t.me/FluxLoad"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="px-2.5 py-1 rounded-lg bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-sm"
+          >
+            <Send className="w-3 h-3" />
+            <span>Join</span>
+          </a>
+        </div>
+
         {/* Error Alert */}
         {errorMsg && (
-          <div className="mb-4 p-3 bg-rose-500/15 border border-rose-500/30 rounded-xl text-xs text-rose-300 flex items-start gap-2">
-            <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
-            <div className="leading-relaxed flex-1">{errorMsg}</div>
+          <div className="mb-4 p-3 bg-rose-500/15 border border-rose-500/30 rounded-xl text-xs text-rose-300 space-y-2">
+            <div className="flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+              <div className="leading-relaxed flex-1">{errorMsg}</div>
+            </div>
+            {(errorMsg.toLowerCase().includes('admin') || errorMsg.toLowerCase().includes('member') || errorMsg.toLowerCase().includes('permission') || errorMsg.includes('বট') || errorMsg.includes('অ্যাডমিন')) && (
+              <div className="pt-2 border-t border-rose-500/30 flex items-center justify-between gap-2">
+                <span className="text-[11px] text-rose-200">বটকে @FluxLoad চ্যানেলে অ্যাডমিন করুন:</span>
+                <a
+                  href={`https://t.me/${botUsername || 'black_world722_bot'}?startchannel=true`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-2.5 py-1 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-bold text-[11px] flex items-center gap-1 shrink-0 cursor-pointer shadow-sm"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>1-Click Add Admin</span>
+                </a>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Warning Notice (e.g. data saved but need admin permissions) */}
+        {warningNotice && (
+          <div className="mb-4 p-3 bg-amber-500/15 border border-amber-500/30 rounded-xl text-xs text-amber-300 flex items-start gap-2">
+            <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5 text-amber-400" />
+            <div className="leading-relaxed flex-1 whitespace-pre-line">{warningNotice}</div>
           </div>
         )}
 
         {/* Success Alert */}
         {successResult && (
-          <div className="mb-4 p-4 bg-emerald-500/15 border border-emerald-500/40 rounded-2xl space-y-2.5 animate-fadeIn">
+          <div className="mb-4 p-4 bg-emerald-500/15 border border-emerald-500/40 rounded-2xl space-y-3 animate-fadeIn">
             <div className="flex items-center space-x-2 text-emerald-300 font-bold text-xs sm:text-sm">
               <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
-              <span>🎉 সফলভাবে টেলিগ্রাম চ্যানেলে পোস্ট হয়েছে!</span>
+              <span>
+                {successResult.totalTargets && successResult.totalTargets > 1
+                  ? `🎉 সফলভাবে ${successResult.successCount}/${successResult.totalTargets}টি টেলিগ্রাম চ্যানেলে একযোগে পোস্ট সম্পন্ন!`
+                  : '🎉 সফলভাবে টেলিগ্রাম চ্যানেলে পোস্ট হয়েছে!'}
+              </span>
             </div>
+
+            {/* Individual Channel Results */}
+            {successResult.results && successResult.results.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                {successResult.results.map((r, idx) => (
+                  <div
+                    key={idx}
+                    className="p-2 rounded-xl bg-slate-950/70 border border-slate-800 flex items-center justify-between text-xs gap-2"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-2 h-2 rounded-full shrink-0 ${r.success ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+                      <span className="font-semibold text-slate-200 truncate">{r.channelTitle || r.targetChat}</span>
+                      <span className="text-[10px] text-slate-400 font-mono truncate">{r.targetChat}</span>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-1.5">
+                      {r.success && r.channelPostUrl && (
+                        <a
+                          href={r.channelPostUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="px-2 py-0.5 rounded bg-emerald-600/30 hover:bg-emerald-600/50 border border-emerald-500/40 text-emerald-200 text-[10px] font-bold flex items-center gap-1"
+                        >
+                          <span>পোস্ট দেখুন</span>
+                          <ExternalLink className="w-2.5 h-2.5" />
+                        </a>
+                      )}
+                      {!r.success && (
+                        <span className="text-[10px] text-rose-300" title={r.error}>
+                          {r.botNeedsAdmin ? 'অ্যাডমিন প্রয়োজন' : 'ব্যর্থ'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
             {successResult.warning && (
               <p className="text-[11px] text-amber-300/90 leading-relaxed">
                 {successResult.warning}
               </p>
             )}
+
             <div className="flex items-center gap-2 pt-1 flex-wrap">
               {successResult.channelPostUrl && (
                 <a
@@ -272,29 +460,110 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
           </div>
         ) : isConfigured ? (
           /* When Bot is already Connected */
-          <div className="space-y-4">
-            <div className="p-3 bg-sky-950/40 border border-sky-500/30 rounded-2xl flex items-center justify-between">
-              <div className="flex items-center space-x-2.5">
-                <div className="w-8 h-8 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400">
-                  <Tv className="w-4 h-4" />
+          <div className="space-y-3.5">
+            {/* Multi-Channel Target Selector */}
+            <div className="p-3 bg-slate-950/70 border border-sky-500/30 rounded-2xl space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-200">
+                  <Radio className="w-3.5 h-3.5 text-sky-400" />
+                  <span>টার্গেট চ্যানেলসমূহ (একই সাথে আপলোড হবে):</span>
                 </div>
-                <div>
-                  <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5">
-                    <span>{channelTitle}</span>
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-mono">
-                    {chatId} {botUsername ? `• @${botUsername}` : ''}
-                  </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSelectAllChannels}
+                    className="text-[10px] text-sky-400 hover:text-sky-300 font-semibold cursor-pointer underline"
+                  >
+                    {selectedChannels.length === channels.length ? 'সব আনচেক' : 'সব সিলেক্ট'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowAddChannelInput(!showAddChannelInput)}
+                    className="text-[10px] text-emerald-400 hover:text-emerald-300 font-semibold cursor-pointer flex items-center gap-0.5"
+                  >
+                    <Plus className="w-3 h-3" />
+                    <span>+ চ্যানেল</span>
+                  </button>
                 </div>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsConfigured(false)}
-                className="text-[11px] text-sky-400 hover:text-sky-300 underline font-medium cursor-pointer"
-              >
-                বদলান
-              </button>
+
+              {/* Channels List with Checkboxes */}
+              <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                {channels.map((c) => {
+                  const isChecked = selectedChannels.includes(c.chatId);
+                  const isOfficial = c.chatId.toLowerCase() === '@fluxload';
+                  return (
+                    <label
+                      key={c.chatId}
+                      className={`flex items-center justify-between p-2 rounded-xl border text-xs cursor-pointer transition-colors ${
+                        isChecked
+                          ? 'bg-sky-500/10 border-sky-500/40 text-slate-100'
+                          : 'bg-slate-900/60 border-slate-800 text-slate-400 hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2.5 min-w-0">
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleToggleChannelSelection(c.chatId)}
+                          className="w-4 h-4 rounded text-sky-500 border-slate-700 bg-slate-900 focus:ring-sky-500 cursor-pointer"
+                        />
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="font-bold text-slate-200 truncate">{c.channelTitle || c.chatId}</span>
+                            {isOfficial && (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 font-bold border border-sky-500/30">
+                                Official
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-[10px] text-slate-400 font-mono">{c.chatId}</span>
+                        </div>
+                      </div>
+
+                      <a
+                        href={`https://t.me/${botUsername || 'black_world722_bot'}?startchannel=true`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-[10px] text-sky-400 hover:text-sky-300 flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-slate-800 hover:bg-slate-700 shrink-0"
+                        title="বট অ্যাডমিন করুন"
+                      >
+                        <ExternalLink className="w-2.5 h-2.5" />
+                        <span>Admin</span>
+                      </a>
+                    </label>
+                  );
+                })}
+              </div>
+
+              {/* Inline Add Channel Input */}
+              {showAddChannelInput && (
+                <div className="pt-2 border-t border-slate-800/80 flex items-center gap-1.5">
+                  <input
+                    type="text"
+                    value={newChannelInput}
+                    onChange={(e) => setNewChannelInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddChannel();
+                      }
+                    }}
+                    placeholder="@MyChannel অথবা https://t.me/MyChannel"
+                    className="flex-1 px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded-lg text-xs text-slate-200 placeholder-slate-500 font-mono focus:outline-none focus:border-sky-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddChannel}
+                    disabled={isAddingChannel || !newChannelInput.trim()}
+                    className="px-2.5 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white rounded-lg text-xs font-bold transition flex items-center gap-1 cursor-pointer shrink-0"
+                  >
+                    {isAddingChannel ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+                    <span>যোগ করুন</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Custom Caption Input */}
@@ -316,18 +585,26 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
               <button
                 type="button"
                 onClick={handleSendToTelegram}
-                disabled={isSending}
+                disabled={isSending || selectedChannels.length === 0}
                 className="flex-1 py-3 px-4 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 disabled:opacity-50 text-white rounded-xl text-xs sm:text-sm font-bold flex items-center justify-center space-x-2 shadow-lg shadow-sky-500/20 transition-all cursor-pointer"
               >
                 {isSending ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>টেলিগ্রামে পাঠানো হচ্ছে...</span>
+                    <span>
+                      {selectedChannels.length > 1
+                        ? `${selectedChannels.length}টি চ্যানেলে পাঠানো হচ্ছে...`
+                        : 'টেলিগ্রামে পাঠানো হচ্ছে...'}
+                    </span>
                   </>
                 ) : (
                   <>
                     <Send className="w-4 h-4" />
-                    <span>✈️ চ্যানেলে পাঠিয়ে দিন (Send to Channel)</span>
+                    <span>
+                      {selectedChannels.length > 1
+                        ? `✈️ ${selectedChannels.length}টি চ্যানেলে একযোগে পাঠান`
+                        : '✈️ চ্যানেলে পাঠিয়ে দিন (Send to Channel)'}
+                    </span>
                   </>
                 )}
               </button>
@@ -394,7 +671,7 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
               />
             </div>
 
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
               <button
                 type="button"
                 onClick={() => setShowGuide(!showGuide)}
@@ -404,24 +681,37 @@ export const TelegramExportModal: React.FC<TelegramExportModalProps> = ({
                 <span>{showGuide ? 'গাইড বন্ধ করুন' : 'বট বানানোর নিয়ম দেখুন'}</span>
               </button>
 
-              <button
-                type="button"
-                onClick={handleConnectAndSave}
-                disabled={isConnecting || !botTokenInput.trim() || !chatIdInput.trim()}
-                className="py-2.5 px-4 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-slate-950 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer"
-              >
-                {isConnecting ? (
-                  <>
-                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    <span>ভেরিফাই করা হচ্ছে...</span>
-                  </>
-                ) : (
-                  <>
-                    <Check className="w-3.5 h-3.5" />
-                    <span>কানেক্ট ও সেভ করুন</span>
-                  </>
-                )}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleConnectAndSave(true)}
+                  disabled={isConnecting || !botTokenInput.trim() || !chatIdInput.trim()}
+                  className="py-2 px-3 bg-slate-800 hover:bg-slate-700 disabled:opacity-40 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                  title="সরাসরি তথ্য সেভ করুন"
+                >
+                  <Save className="w-3.5 h-3.5 text-slate-400" />
+                  <span>সরাসরি সেভ</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleConnectAndSave(false)}
+                  disabled={isConnecting || !botTokenInput.trim() || !chatIdInput.trim()}
+                  className="py-2.5 px-4 bg-sky-500 hover:bg-sky-400 disabled:opacity-50 text-slate-950 rounded-xl text-xs font-bold flex items-center space-x-1.5 transition-colors cursor-pointer"
+                >
+                  {isConnecting ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>ভেরিফাই হচ্ছে...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check className="w-3.5 h-3.5" />
+                      <span>কানেক্ট ও সেভ করুন</span>
+                    </>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Quick Setup Guide Drawer */}

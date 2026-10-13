@@ -45,8 +45,8 @@ import {
   Image as ImageIcon,
   QrCode,
   Zap,
-  Key,
   Send,
+  MoreHorizontal,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { QrCodeModal } from './QrCodeModal';
@@ -159,6 +159,15 @@ interface UrlInputCardProps {
     percent: number;
     error: string | null;
   };
+  telegramConfig?: {
+    configured: boolean;
+    autoSend?: boolean;
+    channelTitle?: string;
+    chatId?: string;
+    botUsername?: string;
+    channels?: Array<{ chatId: string; channelTitle?: string; enabled?: boolean }>;
+  } | null;
+  onToggleTelegramAutoSend?: (desired?: boolean) => void;
 }
 
 export const UrlInputCard: React.FC<UrlInputCardProps> = ({
@@ -184,6 +193,8 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
   onRetrySingle,
   onResetSingle,
   autoSaveStatus,
+  telegramConfig,
+  onToggleTelegramAutoSend,
 }) => {
   const [singleUrl, setSingleUrl] = useState('');
   const [batchText, setBatchText] = useState('');
@@ -206,6 +217,25 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
   const [rateLimit, setRateLimit] = useState<RateLimitChoice>('unlimited');
   const [scheduledDelayMinutes, setScheduledDelayMinutes] = useState<number>(0);
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
+
+  // "More" Dropdown state for clean uncluttered UI
+  const [isMoreModesOpen, setIsMoreModesOpen] = useState(false);
+  const [isMoreActionsOpen, setIsMoreActionsOpen] = useState(false);
+  const moreModesRef = useRef<HTMLDivElement>(null);
+  const moreActionsRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (moreModesRef.current && !moreModesRef.current.contains(e.target as Node)) {
+        setIsMoreModesOpen(false);
+      }
+      if (moreActionsRef.current && !moreActionsRef.current.contains(e.target as Node)) {
+        setIsMoreActionsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Preview state
   const [analyzingPreview, setAnalyzingPreview] = useState(false);
@@ -349,6 +379,8 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
   const [hasIgAuth, setHasIgAuth] = useState<boolean>(false);
   const [hasTgAuth, setHasTgAuth] = useState<boolean>(false);
   const [tgChannelTitle, setTgChannelTitle] = useState<string>('');
+  const [tgAutoSendState, setTgAutoSendState] = useState<boolean>(false);
+
   useEffect(() => {
     const checkAuth = async () => {
       try {
@@ -367,12 +399,42 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
           setHasTgAuth(Boolean(tgData.configured));
           if (tgData.configured) {
             setTgChannelTitle(tgData.channelTitle || tgData.chatId || '');
+            setTgAutoSendState(Boolean(tgData.autoSend));
           }
         }
       } catch {}
     };
     checkAuth();
   }, []);
+
+  const effectiveTgConfig = useMemo(() => {
+    if (telegramConfig) return telegramConfig;
+    if (hasTgAuth) {
+      return {
+        configured: true,
+        autoSend: tgAutoSendState,
+        channelTitle: tgChannelTitle,
+        chatId: tgChannelTitle,
+      };
+    }
+    return null;
+  }, [telegramConfig, hasTgAuth, tgAutoSendState, tgChannelTitle]);
+
+  const handleToggleAutoPost = async () => {
+    if (onToggleTelegramAutoSend) {
+      onToggleTelegramAutoSend();
+      return;
+    }
+    try {
+      const nextVal = !effectiveTgConfig?.autoSend;
+      setTgAutoSendState(nextVal);
+      await fetch('/api/telegram/toggle-auto-send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoSend: nextVal }),
+      });
+    } catch {}
+  };
 
   // Trigger preview analysis
   const triggerFetchPreview = (urlToAnalyze: string) => {
@@ -780,6 +842,9 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
           <>
             <Download className="w-5 h-5 animate-bounce" />
             <span>DOWNLOAD {qualityText} ({quickFormat.toUpperCase()})</span>
+            <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-2 py-0.5 rounded-lg bg-black/30 border border-white/20 text-white/90 ml-2 shadow-inner">
+              Ctrl + ↵
+            </kbd>
           </>
         );
       }
@@ -813,10 +878,10 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
   const platformBadge = getPlatformBadge(singleUrl || activePreview?.webpage_url || '');
 
   return (
-    <div className="w-full max-w-3xl mx-auto bg-slate-900/90 border border-slate-800 rounded-3xl p-6 md:p-8 shadow-2xl shadow-black/50 backdrop-blur-xl">
+    <div className="w-full max-w-3xl mx-auto bg-slate-900/90 border border-slate-800 rounded-2xl sm:rounded-3xl p-3.5 sm:p-6 md:p-8 shadow-2xl shadow-black/50 backdrop-blur-xl overflow-hidden">
       {/* Mode Switcher Tabs */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-5 mb-5 border-b border-slate-800/80">
-        <div className="flex flex-wrap bg-slate-950/80 p-1 rounded-2xl border border-slate-800 gap-1">
+        <div className="flex flex-wrap bg-slate-950/80 p-1 rounded-2xl border border-slate-800 gap-1 items-center max-w-full">
           <button
             type="button"
             onClick={() => onModeChange('single')}
@@ -831,18 +896,6 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
           </button>
           <button
             type="button"
-            onClick={() => onModeChange('social')}
-            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center space-x-1.5 cursor-pointer ${
-              mode === 'social'
-                ? 'bg-gradient-to-r from-pink-500 to-rose-600 text-white shadow-md shadow-pink-500/20'
-                : 'text-slate-400 hover:text-pink-300'
-            }`}
-          >
-            <Sparkles className="w-4 h-4 text-pink-400" />
-            <span>Social Quick</span>
-          </button>
-          <button
-            type="button"
             onClick={() => onModeChange('batch')}
             className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center space-x-1.5 cursor-pointer ${
               mode === 'batch'
@@ -853,34 +906,81 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
             <ListPlus className="w-4 h-4 text-cyan-400" />
             <span>Multiple Download (একাধিক)</span>
           </button>
-          <button
-            type="button"
-            onClick={() => onModeChange('cutter')}
-            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center space-x-1.5 cursor-pointer ${
-              mode === 'cutter'
-                ? 'bg-gradient-to-r from-amber-500 to-orange-600 text-white shadow-md shadow-amber-500/20'
-                : 'text-slate-400 hover:text-amber-300'
-            }`}
-          >
-            <Scissors className="w-4 h-4 text-amber-400" />
-            <span>Audio Cutter</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onModeChange('converter')}
-            className={`px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center space-x-1.5 cursor-pointer ${
-              mode === 'converter'
-                ? 'bg-gradient-to-r from-cyan-500 to-blue-600 text-white shadow-md shadow-cyan-500/20'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Zap className="w-4 h-4 text-cyan-400" />
-            <span>Transcoder</span>
-          </button>
+
+          {/* More Modes Dropdown */}
+          <div className="relative" ref={moreModesRef}>
+            <button
+              type="button"
+              onClick={() => setIsMoreModesOpen(!isMoreModesOpen)}
+              className={`px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition-all flex items-center space-x-1.5 cursor-pointer ${
+                mode === 'social' || mode === 'cutter' || mode === 'converter'
+                  ? 'bg-gradient-to-r from-purple-600 to-indigo-600 text-white shadow-md'
+                  : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
+              }`}
+              title="More download modes (আরও মোড)"
+            >
+              <MoreHorizontal className="w-4 h-4 text-purple-400" />
+              <span>More (আরও)</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isMoreModesOpen ? 'rotate-180' : ''}`} />
+            </button>
+
+            {isMoreModesOpen && (
+              <div className="absolute left-0 top-full mt-1.5 w-56 bg-slate-900/95 border border-slate-700 rounded-2xl shadow-2xl p-1.5 z-40 text-xs backdrop-blur-xl animate-in fade-in">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMoreModesOpen(false);
+                    onModeChange('social');
+                  }}
+                  className={`w-full flex items-center gap-2 p-2 rounded-xl transition-colors cursor-pointer ${
+                    mode === 'social' ? 'bg-pink-500/20 text-pink-300 font-bold' : 'text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4 text-pink-400" />
+                  <div className="text-left">
+                    <div className="font-semibold text-slate-100">Social Quick</div>
+                    <div className="text-[10px] text-slate-400">Reels, Shorts, TikTok</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMoreModesOpen(false);
+                    onModeChange('cutter');
+                  }}
+                  className={`w-full flex items-center gap-2 p-2 rounded-xl transition-colors cursor-pointer ${
+                    mode === 'cutter' ? 'bg-amber-500/20 text-amber-300 font-bold' : 'text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <Scissors className="w-4 h-4 text-amber-400" />
+                  <div className="text-left">
+                    <div className="font-semibold text-slate-100">Audio Cutter</div>
+                    <div className="text-[10px] text-slate-400">অডিও ট্রিম ও রিংটোন কাটার</div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsMoreModesOpen(false);
+                    onModeChange('converter');
+                  }}
+                  className={`w-full flex items-center gap-2 p-2 rounded-xl transition-colors cursor-pointer ${
+                    mode === 'converter' ? 'bg-cyan-500/20 text-cyan-300 font-bold' : 'text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <Zap className="w-4 h-4 text-cyan-400" />
+                  <div className="text-left">
+                    <div className="font-semibold text-slate-100">Transcoder</div>
+                    <div className="text-[10px] text-slate-400">ফরম্যাট কনভার্টার (FFmpeg)</div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="hidden lg:flex items-center space-x-1.5 text-xs text-cyan-400/90 bg-cyan-950/40 border border-cyan-800/40 px-3 py-1.5 rounded-full font-mono">
-          <HardDrive className="w-3.5 h-3.5 text-cyan-400" />
+        <div className="hidden lg:flex items-center space-x-2 text-xs text-amber-300/90 bg-amber-950/30 border border-amber-800/40 px-3 py-1.5 rounded-full font-mono shadow-sm">
+          <img src="/logo.jpg" alt="FluxLoad" className="w-4 h-4 rounded object-cover border border-amber-500/40" />
           <span>Direct to Downloads</span>
         </div>
       </div>
@@ -892,14 +992,21 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
           <div className="space-y-1.5">
             <div className="relative">
               <input
+                id="fluxload-main-url-input"
                 type="text"
                 value={singleUrl}
                 onChange={(e) => {
                   setSingleUrl(e.target.value);
                   if (urlValidationError) setUrlValidationError(null);
                 }}
+                onKeyDown={(e) => {
+                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSingleSubmit(e as any);
+                  }
+                }}
                 disabled={isBusy}
-                placeholder="Paste media link here (YouTube, TikTok, Instagram, Telegram Channel, Twitter, Facebook, etc.)..."
+                placeholder="Paste media link here (Ctrl+V) • Press Ctrl+Enter to Download..."
                 required
                 className="w-full pl-4 pr-16 sm:pr-52 py-3.5 bg-slate-950/80 border border-slate-700/80 rounded-2xl text-slate-100 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500 text-sm md:text-base transition-all shadow-inner disabled:opacity-60"
               />
@@ -1208,6 +1315,58 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
               </div>
             )}
           </div>
+
+          {/* TELEGRAM AUTO-POST CONTROLLER */}
+          {effectiveTgConfig?.configured && (
+            <div className="bg-gradient-to-r from-sky-950/70 via-slate-900/90 to-sky-950/50 border border-sky-500/40 rounded-2xl p-3 sm:p-3.5 flex items-center justify-between gap-3 shadow-md shadow-sky-950/30">
+              <div className="flex items-center space-x-3 min-w-0">
+                <div className="w-9 h-9 rounded-xl bg-sky-500/20 border border-sky-500/30 flex items-center justify-center text-sky-400 shrink-0">
+                  <Send className="w-4 h-4 fill-current/15" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                      <span>টেলিগ্রাম অটো-পোস্ট (Auto Telegram Post)</span>
+                    </span>
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex items-center gap-1 ${
+                        effectiveTgConfig.autoSend
+                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                          : 'bg-slate-800 text-slate-400 border border-slate-700'
+                      }`}
+                    >
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          effectiveTgConfig.autoSend ? 'bg-emerald-400 animate-pulse' : 'bg-slate-500'
+                        }`}
+                      />
+                      {effectiveTgConfig.autoSend ? 'ACTIVE' : 'OFF'}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-sky-200/80 truncate mt-0.5">
+                    ডাউনলোড সম্পন্ন হলেই স্বয়ংক্রিয়ভাবে{' '}
+                    <strong className="text-sky-300 font-mono">
+                      {effectiveTgConfig.channelTitle || effectiveTgConfig.chatId}
+                    </strong>{' '}
+                    চ্যানেলে পোস্ট হবে (১০ GB আল্ট্রা ইঞ্জিন সক্রিয়)
+                  </p>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleToggleAutoPost}
+                className={`shrink-0 px-3.5 py-2 rounded-xl font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer shadow-sm ${
+                  effectiveTgConfig.autoSend
+                    ? 'bg-sky-500 hover:bg-sky-400 text-slate-950 shadow-sky-500/20'
+                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                }`}
+                title={effectiveTgConfig.autoSend ? 'টেলিগ্রাম অটো-পোস্ট বন্ধ করুন' : 'টেলিগ্রাম অটো-পোস্ট চালু করুন'}
+              >
+                <span>{effectiveTgConfig.autoSend ? '✓ চালু (ON)' : 'চালু করুন'}</span>
+              </button>
+            </div>
+          )}
 
           {/* ADVANCED MEDIA TOOLS (TRIM, SUBTITLES, BANDWIDTH LIMIT, SCHEDULER) */}
           <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl overflow-hidden transition-all">
@@ -1788,72 +1947,67 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
                   </button>
                 )}
 
-                {/* QR to Phone */}
+                {/* Secondary tools tucked neatly into More Actions dropdown */}
                 {phase === 'completed' && taskStatus.downloadUrl && (
-                  <button
-                    type="button"
-                    onClick={() => setIsQrModalOpen(true)}
-                    className="py-2 px-3 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-300 border border-cyan-500/40 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
-                  >
-                    <QrCode className="w-3.5 h-3.5" />
-                    <span>QR to Phone</span>
-                  </button>
-                )}
+                  <div className="relative" ref={moreActionsRef}>
+                    <button
+                      type="button"
+                      onClick={() => setIsMoreActionsOpen(!isMoreActionsOpen)}
+                      className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center space-x-1.5 shadow-sm cursor-pointer"
+                      title="More tools (QR, Trim, Player)"
+                    >
+                      <MoreHorizontal className="w-3.5 h-3.5 text-cyan-400" />
+                      <span>More (আরও)</span>
+                      <ChevronDown className={`w-3.5 h-3.5 transition-transform ${isMoreActionsOpen ? 'rotate-180' : ''}`} />
+                    </button>
 
-                {/* Trim as Ringtone / Audio */}
-                {phase === 'completed' && taskStatus.downloadUrl && onOpenAudioCutter && (
-                  <button
-                    type="button"
-                    onClick={() => onOpenAudioCutter(taskStatus.id, taskStatus.downloadUrl, activePreview?.title || videoInfo?.title)}
-                    className="py-2 px-3 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
-                    title="Trim snippet as ringtone or audio clip"
-                  >
-                    <Scissors className="w-3.5 h-3.5" />
-                    <span>✂️ Trim / রিংটোন</span>
-                  </button>
-                )}
-
-                {/* Full Player Modal */}
-                {phase === 'completed' && taskStatus.downloadUrl && onOpenMediaPlayer && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenMediaPlayer(
-                        taskStatus.downloadUrl!,
-                        activePreview?.title || videoInfo?.title,
-                        isAudioOnly ? 'audio' : 'video',
-                        taskStatus.id
-                      )
-                    }
-                    className="py-2 px-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
-                    title="Open full in-app player with loop and speed control"
-                  >
-                    <Play className="w-3.5 h-3.5 fill-current" />
-                    <span>Player</span>
-                  </button>
-                )}
-
-                {/* Send to Telegram Channel Button */}
-                {phase === 'completed' && taskStatus.downloadUrl && onOpenTelegramExport && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      onOpenTelegramExport({
-                        taskId: taskStatus.id,
-                        downloadUrl: taskStatus.downloadUrl,
-                        title: activePreview?.title || videoInfo?.title || taskStatus?.filename || 'Downloaded Media',
-                        thumbnail: activePreview?.thumbnail || videoInfo?.thumbnail,
-                        fileSize: taskStatus.downloadedSize || taskStatus.totalSize,
-                        format: quickFormat,
-                        isAudio: isAudioOnly,
-                      })
-                    }
-                    className="py-2 px-3 bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 shadow-sm cursor-pointer"
-                    title="টেলিগ্রাম চ্যানেলে পাঠান"
-                  >
-                    <Send className="w-3.5 h-3.5 text-sky-400" />
-                    <span>টেলিগ্রাম চ্যানেল</span>
-                  </button>
+                    {isMoreActionsOpen && (
+                      <div className="absolute left-0 bottom-full mb-1.5 w-52 bg-slate-900/95 border border-slate-700 rounded-2xl shadow-2xl p-1.5 z-40 text-xs backdrop-blur-xl animate-in fade-in">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setIsMoreActionsOpen(false);
+                            setIsQrModalOpen(true);
+                          }}
+                          className="w-full flex items-center gap-2 p-2 rounded-xl text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+                        >
+                          <QrCode className="w-3.5 h-3.5 text-cyan-400" />
+                          <span>QR to Phone (মোবাইল)</span>
+                        </button>
+                        {onOpenAudioCutter && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsMoreActionsOpen(false);
+                              onOpenAudioCutter(taskStatus.id, taskStatus.downloadUrl, activePreview?.title || videoInfo?.title);
+                            }}
+                            className="w-full flex items-center gap-2 p-2 rounded-xl text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+                          >
+                            <Scissors className="w-3.5 h-3.5 text-amber-400" />
+                            <span>Trim / রিংটোন</span>
+                          </button>
+                        )}
+                        {onOpenMediaPlayer && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setIsMoreActionsOpen(false);
+                              onOpenMediaPlayer(
+                                taskStatus.downloadUrl!,
+                                activePreview?.title || videoInfo?.title,
+                                isAudioOnly ? 'audio' : 'video',
+                                taskStatus.id
+                              );
+                            }}
+                            className="w-full flex items-center gap-2 p-2 rounded-xl text-slate-200 hover:bg-slate-800 transition-colors cursor-pointer"
+                          >
+                            <Play className="w-3.5 h-3.5 text-emerald-400 fill-current" />
+                            <span>In-App Player</span>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 )}
 
                 {/* Download Another Video Button */}
@@ -1865,12 +2019,140 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
                         onResetSingle();
                         setSingleUrl('');
                       }}
-                      className="py-2 px-4 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 ml-auto"
+                      className="py-2 px-3.5 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all flex items-center justify-center space-x-1.5 ml-auto cursor-pointer"
                     >
-                      <Plus className="w-3.5 h-3.5" />
+                      <Plus className="w-3.5 h-3.5 text-cyan-400" />
                       <span>Download Another</span>
                     </button>
                   )}
+              </div>
+
+              {/* TELEGRAM MULTI-CHANNEL BROADCAST HUB (সব চ্যানেলে একযোগে আপলোড) */}
+              <div className="mt-3 p-3.5 bg-gradient-to-r from-sky-950/60 via-slate-900 to-blue-950/60 border border-sky-500/35 rounded-2xl shadow-lg w-full space-y-3">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center space-x-2 min-w-0">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-sky-500/30 to-blue-600/30 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0 shadow-sm">
+                      <Send className="w-4 h-4" />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-1.5 flex-wrap">
+                        <span>টেলিগ্রাম ব্রডকাস্ট (সকল চ্যানেলে আপলোড):</span>
+                        {taskStatus?.telegramStatus === 'uploading' && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-bold border border-sky-500/40 animate-pulse">
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                            সব চ্যানেলে আপলোড হচ্ছে...
+                          </span>
+                        )}
+                        {taskStatus?.telegramStatus === 'completed' && (
+                          <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-400" />
+                            {taskStatus?.telegramSuccessCount && taskStatus.telegramSuccessCount > 1
+                              ? `${taskStatus.telegramSuccessCount}টি চ্যানেলে পোস্ট সম্পন্ন!`
+                              : 'পোস্ট সম্পন্ন!'}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        ভিডিওটি একসাথে আপনার সকল কানেক্টেড চ্যানেলে সরাসরি আপলোড ও শেয়ার করা হয়
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    {onOpenTelegramExport && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onOpenTelegramExport({
+                            taskId: taskStatus?.id,
+                            downloadUrl: taskStatus?.downloadUrl,
+                            title: activePreview?.title || videoInfo?.title || taskStatus?.filename || 'Downloaded Media',
+                            thumbnail: activePreview?.thumbnail || videoInfo?.thumbnail,
+                            fileSize: taskStatus?.downloadedSize || taskStatus?.totalSize,
+                            format: quickFormat,
+                            isAudio: isAudioOnly,
+                          })
+                        }
+                        className="px-3 py-1.5 bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-sky-500/20 transition-all cursor-pointer"
+                        title="সব চ্যানেলে একযোগে পাঠান"
+                      >
+                        <Send className="w-3.5 h-3.5" />
+                        <span>🚀 সব চ্যানেলে পাঠান</span>
+                      </button>
+                    )}
+                    {onOpenTelegramSettings && (
+                      <button
+                        type="button"
+                        onClick={onOpenTelegramSettings}
+                        className="px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white rounded-xl text-xs font-semibold flex items-center gap-1 transition cursor-pointer border border-slate-700"
+                        title="চ্যানেল যোগ বা রিমুভ করুন"
+                      >
+                        <Plus className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>+ চ্যানেল</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* List of Channels with Status and Post Links */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+                  {(taskStatus?.telegramChannels && taskStatus.telegramChannels.length > 0
+                    ? taskStatus.telegramChannels
+                    : (telegramConfig?.channels || [{ chatId: '@FluxLoad', channelTitle: 'FluxLoad (Official)', enabled: true }])
+                  ).map((ch: any, idx: number) => {
+                    const chatId = ch.targetChat || ch.chatId;
+                    const channelTitle = ch.channelTitle || chatId;
+                    const isSuccess = ch.success === true || (taskStatus?.telegramStatus === 'completed' && Boolean(ch.channelPostUrl));
+                    const postUrl = ch.channelPostUrl || (chatId.startsWith('@') ? `https://t.me/${chatId.replace('@', '')}` : `https://t.me/FluxLoad`);
+                    const isOfficial = chatId.toLowerCase() === '@fluxload';
+
+                    return (
+                      <div
+                        key={idx}
+                        className="p-2.5 rounded-xl bg-slate-950/80 border border-slate-800/90 flex items-center justify-between gap-2 text-xs"
+                      >
+                        <div className="flex items-center space-x-2 min-w-0">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${isSuccess ? 'bg-emerald-400 shadow-sm shadow-emerald-400/50' : taskStatus?.telegramStatus === 'uploading' ? 'bg-sky-400 animate-ping' : 'bg-slate-500'}`} />
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-slate-200 truncate">{channelTitle}</span>
+                              {isOfficial && (
+                                <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/20 text-sky-300 font-bold border border-sky-500/30">
+                                  Official
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] text-slate-400 font-mono">{chatId}</span>
+                          </div>
+                        </div>
+
+                        <div className="shrink-0 flex items-center gap-1.5">
+                          {isSuccess && ch.channelPostUrl ? (
+                            <a
+                              href={ch.channelPostUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold flex items-center gap-1 cursor-pointer transition shadow-sm"
+                            >
+                              <span>পোস্ট দেখুন</span>
+                              <ExternalLink className="w-3 h-3" />
+                            </a>
+                          ) : (
+                            <a
+                              href={postUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-400 hover:text-sky-300 text-[10px] font-semibold flex items-center gap-1 cursor-pointer transition"
+                            >
+                              <span>চ্যানেল</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}
@@ -1913,6 +2195,12 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
             <textarea
               value={batchText}
               onChange={(e) => setBatchText(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && batchUrls.length > 0) {
+                  e.preventDefault();
+                  handleBatchSubmit(e as any);
+                }
+              }}
               placeholder="Paste multiple video URLs here (one URL per line)...&#10;https://www.youtube.com/watch?v=...&#10;https://www.tiktok.com/@...&#10;https://www.instagram.com/p/..."
               rows={4}
               required
@@ -1957,10 +2245,14 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
                 <button
                   type="submit"
                   disabled={batchUrls.length === 0}
-                  className="px-4 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5"
+                  className="px-4 py-1.5 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-cyan-500/25 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center space-x-1.5 cursor-pointer"
+                  title="Queue and analyze batch (Ctrl + Enter)"
                 >
                   <ListPlus className="w-3.5 h-3.5" />
                   <span>Queue & Analyze ({batchUrls.length})</span>
+                  <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1.5 py-0.2 rounded bg-black/30 border border-white/20 text-white/90 ml-1">
+                    Ctrl+↵
+                  </kbd>
                 </button>
               </div>
             </div>
@@ -1968,80 +2260,19 @@ export const UrlInputCard: React.FC<UrlInputCardProps> = ({
         </form>
       )}
 
-      {/* Supported Platforms Tag Pills */}
-      <div className="mt-6 flex flex-wrap items-center justify-center gap-2 text-[11px] text-slate-400 pt-4 border-t border-slate-800/60">
-        <button
-          type="button"
-          onClick={onOpenSettings}
-          className={`px-2.5 py-0.5 rounded-full border transition-colors flex items-center gap-1 font-medium cursor-pointer ${
-            hasYtAuth
-              ? 'bg-red-950/50 border-red-500/40 text-red-300 hover:bg-red-900/50'
-              : 'bg-slate-800/60 border-slate-700/40 text-slate-300 hover:border-slate-500'
-          }`}
-          title={
-            hasYtAuth
-              ? 'YouTube Session is Connected & Authenticated. Click to manage cookies in Settings.'
-              : 'YouTube: Click to add cookies in Settings to bypass cloud bot restrictions.'
-          }
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${hasYtAuth ? 'bg-emerald-400' : 'bg-amber-400'}`}></span>
-          <span>YouTube {hasYtAuth ? '(Connected)' : '(Add Cookies)'}</span>
-        </button>
-        <span className="px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700/40 text-slate-300">
-          TikTok
-        </span>
-        <button
-          type="button"
-          onClick={() => onOpenSettings ? onOpenSettings('instagram') : undefined}
-          className={`px-2.5 py-0.5 rounded-full border transition-colors flex items-center gap-1 font-medium cursor-pointer ${
-            hasIgAuth
-              ? 'bg-gradient-to-r from-pink-950/60 to-purple-950/60 border-pink-500/40 text-pink-300 hover:from-pink-900/60 hover:to-purple-900/60'
-              : 'bg-slate-800/60 border-slate-700/40 text-slate-300 hover:border-pink-500/50 hover:text-pink-300'
-          }`}
-          title={
-            hasIgAuth
-              ? 'Instagram Session Connected! Public & private Reels/Posts download smoothly. Click to manage cookies.'
-              : 'Instagram: Click to add your sessionid / cookies to download any Instagram Reel or video without limits.'
-          }
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${hasIgAuth ? 'bg-emerald-400' : 'bg-pink-400'}`}></span>
-          <span>Instagram {hasIgAuth ? '(Connected)' : '(Add Cookies)'}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            if (onOpenTelegramSettings) {
-              onOpenTelegramSettings();
-            } else if (onOpenSettings) {
-              onOpenSettings('telegram');
-            }
-          }}
-          className={`px-2.5 py-0.5 rounded-full border transition-colors flex items-center gap-1 font-medium cursor-pointer ${
-            hasTgAuth
-              ? 'bg-sky-950/60 border-sky-500/40 text-sky-300 hover:bg-sky-900/60'
-              : 'bg-slate-800/60 border-slate-700/40 text-slate-300 hover:border-sky-500/50 hover:text-sky-300'
-          }`}
-          title={
-            hasTgAuth
-              ? `Telegram Channel Connected (${tgChannelTitle})! Click to manage channel or bot.`
-              : 'Telegram: Public channel/video download supported. Click to connect your Telegram Channel & Bot.'
-          }
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${hasTgAuth ? 'bg-sky-400' : 'bg-slate-400'}`}></span>
-          <span>Telegram {hasTgAuth ? `(${tgChannelTitle || 'Connected'})` : '(Channel & Bot)'}</span>
-        </button>
-        <span className="px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700/40 text-slate-300">
-          Facebook
-        </span>
-        <span className="px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700/40 text-slate-300">
-          X / Twitter
-        </span>
-        <span className="px-2 py-0.5 rounded-full bg-slate-800/60 border border-slate-700/40 text-slate-300">
-          xHamster & 1000+ More
-        </span>
-        <span className="px-2.5 py-0.5 rounded-full bg-cyan-950/70 border border-cyan-500/40 text-cyan-300 font-semibold flex items-center gap-1">
+      {/* Supported Platforms (Clean & Compact) */}
+      <div className="mt-5 flex flex-wrap items-center justify-center gap-1.5 text-[11px] text-slate-400 pt-3 border-t border-slate-800/60">
+        <span className="text-slate-500 font-medium">Supported:</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-800 text-slate-300">YouTube</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-800 text-slate-300">TikTok</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-800 text-slate-300">Instagram</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-800 text-slate-300">Telegram</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-800 text-slate-300">Facebook</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-800 text-slate-300">X / Twitter</span>
+        <span className="px-2 py-0.5 rounded-md bg-slate-950/60 border border-slate-800 text-slate-300">1000+ Sites</span>
+        <span className="px-2 py-0.5 rounded-md bg-cyan-950/50 border border-cyan-500/30 text-cyan-300 font-semibold flex items-center gap-1">
           <HardDrive className="w-3 h-3 text-cyan-400" />
-          Unlimited Size (2000GB+)
+          <span>Ultra Engine (10GB)</span>
         </span>
       </div>
     </div>

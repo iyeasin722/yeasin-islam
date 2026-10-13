@@ -37,6 +37,17 @@
           "type": "string",
           "maxLength": 32
         },
+        "isFavorite": {
+          "type": "boolean"
+        },
+        "taskId": {
+          "type": "string",
+          "maxLength": 128
+        },
+        "downloadUrl": {
+          "type": "string",
+          "maxLength": 2048
+        },
         "createdAt": {
           "type": "string",
           "format": "date-time"
@@ -49,12 +60,80 @@
         "url",
         "createdAt"
       ]
+    },
+    "UserSettings": {
+      "title": "UserSettings",
+      "description": "User preferences and cloud synced settings",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "defaultType": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "defaultQuality": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "defaultFormat": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "autoSaveToDownloads": {
+          "type": "boolean"
+        },
+        "saveFolderPrefix": {
+          "type": "string",
+          "maxLength": 64
+        },
+        "playNotificationSound": {
+          "type": "boolean"
+        },
+        "browserNotifications": {
+          "type": "boolean"
+        },
+        "autoClearOnFinish": {
+          "type": "boolean"
+        },
+        "speedGraphEnabled": {
+          "type": "boolean"
+        },
+        "batchConcurrency": {
+          "type": "number"
+        },
+        "maxFileSizeGb": {
+          "type": "number"
+        },
+        "bdixFirstSpeed": {
+          "type": "boolean"
+        },
+        "defaultRateLimit": {
+          "type": "string",
+          "maxLength": 32
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "userId",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
     "users/{userId}/downloads/{downloadId}": {
       "schema": "DownloadHistory",
       "description": "Per-user download history subcollection"
+    },
+    "users/{userId}/profile/settings": {
+      "schema": "UserSettings",
+      "description": "User preferences and settings configuration"
     }
   }
 }

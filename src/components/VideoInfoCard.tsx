@@ -14,7 +14,8 @@ import {
   ChevronUp,
   FileVideo,
   Sparkles,
-  Info
+  Info,
+  Send,
 } from 'lucide-react';
 
 interface VideoInfoCardProps {
@@ -268,6 +269,39 @@ export const VideoInfoCard: React.FC<VideoInfoCardProps> = ({ info, onStartDownl
         </div>
       </div>
 
+      {/* Official Telegram Channel Link Under Video */}
+      <div className="mb-6 p-3 bg-gradient-to-r from-sky-950/40 via-slate-900 to-sky-950/40 border border-sky-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center space-x-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+            <Send className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5 flex-wrap">
+              <span>Official Telegram:</span>
+              <a
+                href="https://t.me/FluxLoad"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sky-400 hover:text-sky-300 font-mono hover:underline font-bold"
+              >
+                https://t.me/FluxLoad
+              </a>
+            </div>
+            <p className="text-[11px] text-slate-400 truncate">
+              সব ভিডিও ডাউনলোড ও স্টিকারের জন্য আমাদের চ্যানেলে জয়েন করুন
+            </p>
+          </div>
+        </div>
+        <a
+          href="https://t.me/FluxLoad"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-md shadow-sky-500/20 cursor-pointer"
+        >
+          <Send className="w-3 h-3" />
+          <span>Join Channel</span>
+        </a>
+      </div>
       {/* Guaranteed Filename Confirmation Banner */}
       <div className="mb-6 p-3.5 bg-gradient-to-r from-slate-950 via-slate-900 to-slate-950 border border-cyan-500/30 rounded-2xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 shadow-inner">
         <div className="flex items-center gap-2.5 min-w-0">
@@ -566,6 +600,40 @@ export const VideoInfoCard: React.FC<VideoInfoCardProps> = ({ info, onStartDownl
           </div>
         )}
       </form>
+
+      {/* Official Telegram Channel Link Under Download Form */}
+      <div className="mt-4 p-3 bg-gradient-to-r from-sky-950/40 via-slate-900 to-sky-950/40 border border-sky-500/30 rounded-2xl flex items-center justify-between gap-3 shadow-md">
+        <div className="flex items-center space-x-2.5 min-w-0">
+          <div className="w-8 h-8 rounded-xl bg-sky-500/20 flex items-center justify-center text-sky-400 shrink-0">
+            <Send className="w-4 h-4" />
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs font-bold text-slate-200 flex items-center gap-1.5 flex-wrap">
+              <span>Official Telegram:</span>
+              <a
+                href="https://t.me/FluxLoad"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-sky-400 hover:text-sky-300 font-mono hover:underline font-bold"
+              >
+                https://t.me/FluxLoad
+              </a>
+            </div>
+            <p className="text-[11px] text-slate-400 truncate">
+              সব ভিডিও ডাউনলোড, স্টিকার ও আপডেটের জন্য জয়েন করুন
+            </p>
+          </div>
+        </div>
+        <a
+          href="https://t.me/FluxLoad"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-md shadow-sky-500/20 cursor-pointer"
+        >
+          <Send className="w-3 h-3" />
+          <span>Join Channel</span>
+        </a>
+      </div>
     </div>
   );
 };
