@@ -44,6 +44,10 @@ import {
   Plus,
   Radio,
   AtSign,
+  ChevronDown,
+  ChevronUp,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import { User } from 'firebase/auth';
 import { FluxLoadSettings, DEFAULT_SETTINGS, VideoQuality, VideoFormatChoice, DownloadType, CookieStatus } from '../types';
@@ -126,7 +130,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     botTokenMasked?: string;
     chatId?: string;
     channelTitle?: string;
-    channels?: Array<{ chatId: string; channelTitle?: string; enabled?: boolean }>;
+    channels?: Array<{
+      chatId: string;
+      channelTitle?: string;
+      enabled?: boolean;
+      botToken?: string;
+      botUsername?: string;
+      customCaption?: string;
+    }>;
     channelCount?: number;
     activeChannelCount?: number;
     botUsername?: string;
@@ -138,6 +149,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   } | null>(null);
   const [newChannelInput, setNewChannelInput] = useState('');
   const [isAddingChannel, setIsAddingChannel] = useState(false);
+  const [expandedChannelChatId, setExpandedChannelChatId] = useState<string | null>(null);
+  const [channelCustomBot, setChannelCustomBot] = useState<Record<string, string>>({});
+  const [channelCustomCaption, setChannelCustomCaption] = useState<Record<string, string>>({});
+  const [isSavingChannel, setIsSavingChannel] = useState<Record<string, boolean>>({});
+  const [showChannelBotToken, setShowChannelBotToken] = useState<Record<string, boolean>>({});
   const [tgBotToken, setTgBotToken] = useState('');
   const [tgChatId, setTgChatId] = useState('');
   const [isTgSaving, setIsTgSaving] = useState(false);
@@ -222,6 +238,40 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         setTelegramConfig(data);
         if (data.chatId && !tgChatId) {
           setTgChatId(data.chatId);
+        }
+        if (data.channels && Array.isArray(data.channels) && data.channels.length > 0) {
+          try {
+            localStorage.setItem('fluxload_saved_channels', JSON.stringify(data.channels));
+          } catch {}
+          const botMap: Record<string, string> = {};
+          const captionMap: Record<string, string> = {};
+          data.channels.forEach((c: any) => {
+            if (c.botToken) botMap[c.chatId] = c.botToken;
+            if (c.customCaption) captionMap[c.chatId] = c.customCaption;
+          });
+          setChannelCustomBot((prev) => ({ ...botMap, ...prev }));
+          setChannelCustomCaption((prev) => ({ ...captionMap, ...prev }));
+        } else {
+          // If server channels lost or wiped during high load/crash, restore from localStorage
+          try {
+            const saved = localStorage.getItem('fluxload_saved_channels');
+            if (saved) {
+              const parsed = JSON.parse(saved);
+              if (Array.isArray(parsed) && parsed.length > 1) {
+                const restRes = await fetch('/api/telegram/channels/restore', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ channels: parsed }),
+                });
+                if (restRes.ok) {
+                  const restData = await restRes.json();
+                  if (restData.channels) {
+                    setTelegramConfig((prev) => (prev ? { ...prev, channels: restData.channels } : prev));
+                  }
+                }
+              }
+            }
+          } catch {}
         }
       }
     } catch {}
@@ -691,8 +741,53 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
               }
             : prev
         );
+        try {
+          localStorage.setItem('fluxload_saved_channels', JSON.stringify(data.channels));
+        } catch {}
       }
     } catch {}
+  };
+
+  const handleSaveChannelCustomSettings = async (targetChatId: string) => {
+    setIsSavingChannel((prev) => ({ ...prev, [targetChatId]: true }));
+    try {
+      const botToken = channelCustomBot[targetChatId] !== undefined ? channelCustomBot[targetChatId].trim() : '';
+      const customCaption = channelCustomCaption[targetChatId] !== undefined ? channelCustomCaption[targetChatId] : '';
+      const res = await fetch('/api/telegram/channels/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chatId: targetChatId,
+          botToken,
+          customCaption,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        addToast('success', 'চ্যানেল সেটিংস সেভ হয়েছে ✅', data.message);
+        if (data.channels) {
+          setTelegramConfig((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  channels: data.channels,
+                  channelCount: data.channels.length,
+                  activeChannelCount: data.channels.filter((c: any) => c.enabled !== false).length,
+                }
+              : prev
+          );
+          try {
+            localStorage.setItem('fluxload_saved_channels', JSON.stringify(data.channels));
+          } catch {}
+        }
+      } else {
+        addToast('error', 'সেটিংস সেভ ব্যর্থ', data.error || 'বট টোকেন বা চ্যানেল তথ্য সঠিক কিনা চেক করুন।');
+      }
+    } catch (e: any) {
+      addToast('error', 'Error', e.message);
+    } finally {
+      setIsSavingChannel((prev) => ({ ...prev, [targetChatId]: false }));
+    }
   };
 
   const handlePerformSync = async () => {
@@ -2127,80 +2222,263 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                     ).map((channel) => {
                       const isOfficial = channel.chatId.toLowerCase() === '@fluxload';
                       const isEnabled = channel.enabled !== false;
+                      const isExpanded = expandedChannelChatId === channel.chatId;
+                      const hasDedicatedBot = Boolean(channel.botToken);
+                      const hasCustomCaption = Boolean(channel.customCaption);
+                      const isSavingThis = Boolean(isSavingChannel[channel.chatId]);
+                      const showToken = Boolean(showChannelBotToken[channel.chatId]);
+                      const currentBotVal = channelCustomBot[channel.chatId] !== undefined
+                        ? channelCustomBot[channel.chatId]
+                        : (channel.botToken || '');
+                      const currentCaptionVal = channelCustomCaption[channel.chatId] !== undefined
+                        ? channelCustomCaption[channel.chatId]
+                        : (channel.customCaption || '');
+
                       return (
                         <div
                           key={channel.chatId}
-                          className={`p-3 rounded-xl border flex items-center justify-between gap-3 transition-colors ${
+                          className={`rounded-xl border transition-all ${
                             isEnabled
                               ? 'bg-slate-950/80 border-sky-500/30'
-                              : 'bg-slate-950/40 border-slate-800 opacity-60'
+                              : 'bg-slate-950/40 border-slate-800 opacity-70'
                           }`}
                         >
-                          <div className="flex items-center space-x-2.5 min-w-0">
-                            <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
-                              isOfficial ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-800 text-slate-300'
-                            }`}>
-                              <Tv className="w-4 h-4" />
-                            </div>
-                            <div className="min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                <span className="text-xs font-bold text-slate-100 truncate">
-                                  {channel.channelTitle || channel.chatId}
-                                </span>
-                                {isOfficial && (
-                                  <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                                    Official Channel
+                          {/* Channel Card Header */}
+                          <div className="p-3 flex items-center justify-between gap-3 flex-wrap">
+                            <div className="flex items-center space-x-2.5 min-w-0">
+                              <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${
+                                isOfficial ? 'bg-sky-500/20 text-sky-400' : 'bg-slate-800 text-slate-300'
+                              }`}>
+                                <Tv className="w-4 h-4" />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <span className="text-xs font-bold text-slate-100 truncate">
+                                    {channel.channelTitle || channel.chatId}
                                   </span>
-                                )}
-                                <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
-                                  isEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500'
-                                }`}>
-                                  {isEnabled ? '✓ সক্রিয় (Broadcasting)' : 'বিরত (Paused)'}
-                                </span>
-                              </div>
-                              <div className="text-[11px] text-slate-400 font-mono truncate">
-                                {channel.chatId}
+                                  {isOfficial && (
+                                    <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                                      Official
+                                    </span>
+                                  )}
+                                  <span className={`text-[9px] px-1.5 py-0.2 rounded font-semibold ${
+                                    isEnabled ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-500'
+                                  }`}>
+                                    {isEnabled ? '✓ সক্রিয়' : 'বিরত'}
+                                  </span>
+                                  {hasDedicatedBot && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded font-mono font-bold bg-purple-500/20 text-purple-300 border border-purple-500/30 flex items-center gap-1">
+                                      <Bot className="w-2.5 h-2.5" />
+                                      {channel.botUsername ? `@${channel.botUsername}` : 'আলাদা বট'}
+                                    </span>
+                                  )}
+                                  {hasCustomCaption && (
+                                    <span className="text-[9px] px-1.5 py-0.2 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1">
+                                      <FileText className="w-2.5 h-2.5" />
+                                      কাস্টম ক্যাপশন
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="text-[11px] text-slate-400 font-mono truncate">
+                                  {channel.chatId}
+                                </div>
                               </div>
                             </div>
-                          </div>
 
-                          <div className="flex items-center gap-2 shrink-0">
-                            {/* Toggle Enable/Disable */}
-                            <button
-                              type="button"
-                              onClick={() => handleToggleChannel(channel.chatId, isEnabled)}
-                              className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
-                                isEnabled
-                                  ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
-                                  : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700'
-                              }`}
-                            >
-                              {isEnabled ? 'অন' : 'অফ'}
-                            </button>
-
-                            {/* Remove channel button (if not official) */}
-                            {!isOfficial && (
+                            <div className="flex items-center gap-1.5 shrink-0">
+                              {/* Expand/Collapse Custom Bot & Caption */}
                               <button
                                 type="button"
-                                onClick={() => handleRemoveChannel(channel.chatId)}
-                                className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
-                                title="চ্যানেল মুছে ফেলুন"
+                                onClick={() => setExpandedChannelChatId(isExpanded ? null : channel.chatId)}
+                                className={`px-2 py-1 rounded-lg text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer ${
+                                  isExpanded
+                                    ? 'bg-sky-500/30 text-sky-300 border border-sky-500/40'
+                                    : hasDedicatedBot || hasCustomCaption
+                                    ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border border-purple-500/40'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
+                                }`}
+                                title="এই চ্যানেলের জন্য আলাদা বট ও ক্যাপশন কনফিগার করুন"
                               >
-                                <Trash2 className="w-3.5 h-3.5" />
+                                <Bot className="w-3 h-3 text-sky-400" />
+                                <span>আলাদা বট ও ক্যাপশন</span>
+                                {isExpanded ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
                               </button>
-                            )}
 
-                            {/* 1-Click Admin Link */}
-                            <a
-                              href={`https://t.me/${telegramConfig?.botUsername || 'black_world722_bot'}?startchannel=true`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="p-1.5 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-colors"
-                              title="বটকে চ্যানেলে অ্যাডমিন করুন"
-                            >
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            </a>
+                              {/* Toggle Enable/Disable */}
+                              <button
+                                type="button"
+                                onClick={() => handleToggleChannel(channel.chatId, isEnabled)}
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                                  isEnabled
+                                    ? 'bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                                    : 'bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700'
+                                }`}
+                              >
+                                {isEnabled ? 'অন' : 'অফ'}
+                              </button>
+
+                              {/* Remove channel button (if not official) */}
+                              {!isOfficial && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveChannel(channel.chatId)}
+                                  className="p-1.5 text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                                  title="চ্যানেল মুছে ফেলুন"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+
+                              {/* 1-Click Admin Link */}
+                              <a
+                                href={`https://t.me/${channel.botUsername || telegramConfig?.botUsername || 'black_world722_bot'}?startchannel=true`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="p-1.5 text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 rounded-lg transition-colors"
+                                title="বটকে চ্যানেলে অ্যাডমিন করুন"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
                           </div>
+
+                          {/* Inline Expansion: Dedicated Bot Token & Custom Caption Settings */}
+                          {isExpanded && (
+                            <div className="p-3.5 border-t border-slate-800/80 bg-slate-900/60 rounded-b-xl space-y-3 animate-in fade-in duration-200">
+                              <div className="flex items-center justify-between pb-1 border-b border-slate-800/60">
+                                <span className="text-[11px] font-bold text-sky-300 flex items-center gap-1.5">
+                                  <Bot className="w-3.5 h-3.5" />
+                                  <span>{channel.channelTitle || channel.chatId} - আলাদা বট ও ক্যাপশন কনফিগারেশন</span>
+                                </span>
+                                <span className="text-[10px] text-slate-400">
+                                  একটি বট একটি চ্যানেলে আপলোড করবে (লোড ফ্রি)
+                                </span>
+                              </div>
+
+                              {/* Dedicated Bot Token Input */}
+                              <div>
+                                <div className="flex items-center justify-between mb-1">
+                                  <label className="text-[11px] font-semibold text-slate-200 flex items-center gap-1">
+                                    <Key className="w-3 h-3 text-amber-400" />
+                                    <span>এই চ্যানেলের জন্য আলাদা বট টোকেন (Dedicated Bot Token):</span>
+                                  </label>
+                                  {channel.botUsername && (
+                                    <span className="text-[10px] font-mono text-emerald-400">
+                                      যুক্ত বট: @{channel.botUsername}
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="relative">
+                                  <input
+                                    type={showToken ? 'text' : 'password'}
+                                    value={currentBotVal}
+                                    onChange={(e) =>
+                                      setChannelCustomBot((prev) => ({
+                                        ...prev,
+                                        [channel.chatId]: e.target.value,
+                                      }))
+                                    }
+                                    placeholder="e.g. 123456789:ABCdefGhIjk..."
+                                    className="w-full px-3 py-2 pr-10 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-purple-500"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setShowChannelBotToken((prev) => ({
+                                        ...prev,
+                                        [channel.chatId]: !showToken,
+                                      }))
+                                    }
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-200 cursor-pointer"
+                                  >
+                                    {showToken ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                                  </button>
+                                </div>
+                                <p className="text-[10px] text-slate-400 mt-1">
+                                  💡 <b>টিপস:</b> প্রতিটি চ্যানেলের জন্য আলাদা বট দিলে একযোগে একাধিক চ্যানেলে আপলোড করার সময় কোনো 429 লিমিট বা ক্র্যাশ হবে না। ফাঁকা রাখলে প্রধান ডিফল্ট বট ব্যবহার হবে।
+                                </p>
+                              </div>
+
+                              {/* Custom Caption Template */}
+                              <div>
+                                <label className="block text-[11px] font-semibold text-slate-200 mb-1 flex items-center gap-1">
+                                  <FileText className="w-3 h-3 text-sky-400" />
+                                  <span>কাস্টম ক্যাপশন টেমপ্লেট (Custom Post Caption):</span>
+                                </label>
+                                <textarea
+                                  rows={3}
+                                  value={currentCaptionVal}
+                                  onChange={(e) =>
+                                    setChannelCustomCaption((prev) => ({
+                                      ...prev,
+                                      [channel.chatId]: e.target.value,
+                                    }))
+                                  }
+                                  placeholder={`🎬 <b>{title}</b>\n\n📦 <b>{part}</b>\n⚡ সরাসরি Telegram এ প্লে হবে\n📢 <b>Join: {channel}</b>`}
+                                  className="w-full p-2.5 bg-slate-950 border border-slate-800 rounded-lg text-xs font-mono text-slate-200 placeholder-slate-600 focus:outline-none focus:border-sky-500 resize-y"
+                                />
+                                {/* Quick Tag Inserters */}
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                  <span className="text-[10px] text-slate-400">ট্যাগ ইনসার্ট:</span>
+                                  {['{title}', '{part}', '{size}', '{channel}', '{chatId}'].map((tag) => (
+                                    <button
+                                      key={tag}
+                                      type="button"
+                                      onClick={() => {
+                                        const prev = currentCaptionVal;
+                                        const updated = prev ? `${prev} ${tag}` : tag;
+                                        setChannelCustomCaption((p) => ({
+                                          ...p,
+                                          [channel.chatId]: updated,
+                                        }));
+                                      }}
+                                      className="px-1.5 py-0.5 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[10px] font-mono cursor-pointer transition-colors"
+                                    >
+                                      +{tag}
+                                    </button>
+                                  ))}
+                                  {currentCaptionVal && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setChannelCustomCaption((p) => ({
+                                          ...p,
+                                          [channel.chatId]: '',
+                                        }))
+                                      }
+                                      className="text-[10px] text-rose-400 hover:underline ml-auto cursor-pointer"
+                                    >
+                                      রিসেট
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+
+                              {/* Save Button */}
+                              <div className="flex items-center justify-end gap-2 pt-1 border-t border-slate-800/60">
+                                <button
+                                  type="button"
+                                  onClick={() => setExpandedChannelChatId(null)}
+                                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs rounded-lg transition-colors cursor-pointer"
+                                >
+                                  বন্ধ করুন
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleSaveChannelCustomSettings(channel.chatId)}
+                                  disabled={isSavingThis}
+                                  className="px-4 py-1.5 bg-gradient-to-r from-sky-600 to-purple-600 hover:from-sky-500 hover:to-purple-500 text-white text-xs font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer shadow-sm disabled:opacity-50"
+                                >
+                                  {isSavingThis ? (
+                                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                  ) : (
+                                    <Save className="w-3.5 h-3.5" />
+                                  )}
+                                  <span>সেটিংস সেভ করুন</span>
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
                       );
                     })}

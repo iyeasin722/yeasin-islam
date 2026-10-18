@@ -13,6 +13,7 @@ import { LocalMediaConverter } from './components/LocalMediaConverter';
 import { SocialQuickMode } from './components/SocialQuickMode';
 import { AudioCutterModal } from './components/AudioCutterModal';
 import { MediaPlayerModal } from './components/MediaPlayerModal';
+import { DomainWatcherManager } from './components/DomainWatcherManager';
 import { TelegramExportModal } from './components/TelegramExportModal';
 import { ToastContainer, ToastData } from './components/Toast';
 import { CommunityJoinBanner } from './components/CommunityJoinBanner';
@@ -167,7 +168,14 @@ export default function App() {
     chatId?: string;
     channelTitle?: string;
     botUsername?: string;
-    channels?: Array<{ chatId: string; channelTitle?: string; enabled?: boolean }>;
+    channels?: Array<{
+      chatId: string;
+      channelTitle?: string;
+      enabled?: boolean;
+      botToken?: string;
+      botUsername?: string;
+      customCaption?: string;
+    }>;
     autoSend?: boolean;
     removeSizeLimit?: boolean;
     maxUploadGb?: number;
@@ -203,6 +211,54 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         setTelegramConfig(data);
+        if (data && (data.botToken || data.chatId)) {
+          try {
+            localStorage.setItem('fluxload_telegram_config', JSON.stringify(data));
+          } catch {}
+        }
+        if (data?.channels && Array.isArray(data.channels) && data.channels.length > 0) {
+          try {
+            localStorage.setItem('fluxload_saved_channels', JSON.stringify(data.channels));
+          } catch {}
+        }
+        // If server only returned default @FluxLoad channel, check if we have more saved channels in browser
+        if (!data?.channels || data.channels.length <= 1) {
+          try {
+            const savedChannels = localStorage.getItem('fluxload_saved_channels');
+            if (savedChannels) {
+              const parsed = JSON.parse(savedChannels);
+              if (Array.isArray(parsed) && parsed.length > 1) {
+                const restoreRes = await fetch('/api/telegram/channels/restore', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ channels: parsed }),
+                });
+                if (restoreRes.ok) {
+                  const restoredData = await restoreRes.json();
+                  if (restoredData.channels) {
+                    setTelegramConfig((prev) => prev ? { ...prev, channels: restoredData.channels } : prev);
+                  }
+                }
+              }
+            }
+          } catch {}
+        }
+      } else {
+        // Auto-recovery: If server lost config, restore from permanent browser storage
+        try {
+          const cached = localStorage.getItem('fluxload_telegram_config');
+          if (cached) {
+            const parsed = JSON.parse(cached);
+            if (parsed && (parsed.botToken || parsed.chatId)) {
+              await fetch('/api/telegram/restore', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ config: parsed }),
+              });
+              setTelegramConfig(parsed);
+            }
+          }
+        } catch {}
       }
     } catch (err) {
       console.error('Failed to query telegram config:', err);
@@ -566,10 +622,8 @@ export default function App() {
     return data;
   };
 
-  // ==========================================
-  // FULLY AUTOMATIC SINGLE DOWNLOAD WORKFLOW
-  // ==========================================
   const autoDownloadedSingleJobIdsRef = useRef<Set<string>>(new Set());
+  const telegramNotifiedTasksRef = useRef<Set<string>>(new Set());
   const [autoSaveStatus, setAutoSaveStatus] = useState<{
     isSaving: boolean;
     success: boolean;
@@ -770,6 +824,30 @@ export default function App() {
 
             if (statusData.status === 'completed' || statusData.status === 'done') {
               setSmartRetryAttempts(0);
+              // If Telegram upload is active or queued, keep polling so user sees live upload speed & progress!
+              if (
+                statusData.telegramUploading ||
+                statusData.telegramStatus === 'uploading' ||
+                statusData.telegramStatus === 'queued'
+              ) {
+                pollTimeout = setTimeout(pollStatus, 800);
+                return;
+              }
+
+              // If Telegram upload just completed, show toast once
+              if (
+                statusData.telegramStatus === 'completed' &&
+                statusData.id &&
+                !telegramNotifiedTasksRef.current.has(statusData.id)
+              ) {
+                telegramNotifiedTasksRef.current.add(statusData.id);
+                addGlobalToast(
+                  'success',
+                  '✅ Auto-Posted to Telegram! 🎬',
+                  `ভিডিওটি সকল টেলিগ্রাম চ্যানেলে সফলভাবে আপলোড সম্পন্ন হয়েছে!`,
+                  8000
+                );
+              }
               return;
             }
 
@@ -1099,10 +1177,25 @@ export default function App() {
             }),
           });
 
-          const postData = await postRes.json();
-          if (postRes.ok && postData.success) {
+          let postData: any = null;
+          try {
+            const ct = postRes.headers.get('content-type');
+            if (ct && ct.includes('application/json')) {
+              postData = await postRes.json();
+            }
+          } catch {}
+
+          if (postRes.ok && postData?.started) {
             setTaskStatus((prev) => ({
               ...prev,
+              telegramUploading: true,
+              telegramStatus: 'uploading',
+            }));
+            // Polling loop in pollStatus continuously tracks upload speed, progress & completion
+          } else if (postRes.ok && postData?.success) {
+            setTaskStatus((prev) => ({
+              ...prev,
+              telegramUploading: false,
               telegramStatus: 'completed',
               telegramPostUrl: postData.channelPostUrl,
               telegramPostUrls: postData.channelPostUrls,
@@ -1112,18 +1205,22 @@ export default function App() {
               telegramMessage: postData.message,
             }));
 
-            const countMsg = postData.totalTargets && postData.totalTargets > 1
-              ? `${postData.successCount}/${postData.totalTargets}টি চ্যানেলে (${channelNames})`
-              : '@FluxLoad চ্যানেলে';
-            addGlobalToast(
-              'success',
-              '✅ Auto-Posted to Telegram! 🎬',
-              `ভিডিওটি ${countMsg} সফলভাবে আপলোড হয়েছে (${postData.formattedSize || ''})!`,
-              8000
-            );
-          } else if (postData.botNeedsAdmin) {
+            if (taskId && !telegramNotifiedTasksRef.current.has(taskId)) {
+              telegramNotifiedTasksRef.current.add(taskId);
+              const countMsg = postData.totalTargets && postData.totalTargets > 1
+                ? `${postData.successCount}/${postData.totalTargets}টি চ্যানেলে (${channelNames})`
+                : '@FluxLoad চ্যানেলে';
+              addGlobalToast(
+                'success',
+                '✅ Auto-Posted to Telegram! 🎬',
+                `ভিডিওটি ${countMsg} সফলভাবে আপলোড হয়েছে (${postData.formattedSize || ''})!`,
+                8000
+              );
+            }
+          } else if (postData?.botNeedsAdmin) {
             setTaskStatus((prev) => ({
               ...prev,
+              telegramUploading: false,
               telegramStatus: 'forbidden_admin_needed',
               telegramChannels: postData.results,
               telegramError: postData.error || postData.message,
@@ -1134,9 +1231,10 @@ export default function App() {
               `বট @${telegramConfig?.botUsername || 'black_world722_bot'} টেলিগ্রাম চ্যানেলে Administrator হিসেবে নেই। চ্যানেলে বটকে Administrator করুন (Post Messages পারমিশন দিয়ে)।`,
               10000
             );
-          } else {
+          } else if (postData) {
             setTaskStatus((prev) => ({
               ...prev,
+              telegramUploading: false,
               telegramStatus: 'error',
               telegramChannels: postData.results,
               telegramError: postData.error || postData.message,
@@ -1144,7 +1242,7 @@ export default function App() {
             console.warn('Telegram Auto-Post notice:', postData.error);
           }
         } catch (err: any) {
-          console.warn('Auto Telegram send failed:', err);
+          console.warn('Auto Telegram send notice:', err?.message || err);
         }
       })();
     } else if (taskStatus.status === 'error') {
@@ -1635,6 +1733,8 @@ export default function App() {
               autoSaveStatus={autoSaveStatus}
               telegramConfig={telegramConfig}
               onToggleTelegramAutoSend={handleToggleTelegramAutoSend}
+              onOpenStickerMaker={() => setIsStickerMakerOpen(true)}
+              onOpenHistory={() => setIsHistoryOpen(true)}
             />
           )}
 
@@ -1647,7 +1747,7 @@ export default function App() {
                   onClick={() => setAppMode('single')}
                   className="px-4 py-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 rounded-xl text-xs font-semibold transition-all flex items-center space-x-2 cursor-pointer shadow-sm"
                 >
-                  <span>← Back to URL Downloader</span>
+                  <span>← Back to URL Download</span>
                 </button>
               </div>
               <SocialQuickMode
@@ -1731,6 +1831,15 @@ export default function App() {
                 playNotificationSound={settings.playNotificationSound}
               />
             </div>
+          )}
+
+          {/* AUTONOMOUS DOMAIN VIDEO CRAWLER & AUTO-POSTER MODE */}
+          {appMode === 'crawler' && (
+            <DomainWatcherManager
+              onBackToDownloads={() => setAppMode('single')}
+              telegramConfig={telegramConfig}
+              onOpenSettings={() => setIsSettingsOpen(true)}
+            />
           )}
         </div>
       </main>

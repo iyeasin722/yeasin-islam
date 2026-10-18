@@ -1,0 +1,22 @@
+[
+  {
+    "id": "sched_1792179947865_xly42",
+    "name": "Test Night Batch",
+    "scheduledTime": "2026-10-17T02:00:00.000Z",
+    "status": "pending",
+    "items": [
+      {
+        "id": "261b576a-2517-4d5c-a81e-a255694a47fa",
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "title": "Test Rick Roll",
+        "type": "video",
+        "quality": "best",
+        "format": "mp4"
+      }
+    ],
+    "concurrency": 1,
+    "autoSendTelegram": true,
+    "autoSaveToDownloads": false,
+    "createdAt": "2026-10-16T19:45:47.865Z"
+  }
+]

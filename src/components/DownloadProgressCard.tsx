@@ -23,6 +23,11 @@ import {
   Share2,
   Scissors,
   Send,
+  Zap,
+  Gauge,
+  ShieldCheck,
+  Clock,
+  Database,
 } from 'lucide-react';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 import { soundNotify } from '../lib/soundNotify';
@@ -579,47 +584,138 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
           )}
         </div>
 
-        {/* Telegram Multi-Channel Broadcast Status Under Video */}
-        <div className="mt-4 p-3.5 bg-gradient-to-r from-sky-950/60 via-slate-900 to-blue-950/60 border border-sky-500/35 rounded-2xl shadow-lg w-full space-y-2.5">
+        {/* Telegram Multi-Channel Broadcast & Live Upload Speed Engine */}
+        <div className="mt-4 p-4 bg-gradient-to-br from-slate-950 via-slate-900 to-sky-950/70 border border-sky-500/35 rounded-2xl shadow-xl w-full space-y-3 relative overflow-hidden">
+          {/* Glowing background accent */}
+          <div className="absolute top-0 right-0 w-48 h-24 bg-sky-500/10 blur-2xl pointer-events-none rounded-full" />
+
+          {/* Top Bar: Title & Channel Link */}
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center space-x-2.5 min-w-0">
-              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-sky-500/30 to-blue-600/30 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0 shadow-sm">
-                <Send className="w-4 h-4" />
+              <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-sky-500/30 to-blue-600/30 border border-sky-400/40 flex items-center justify-center text-sky-400 shrink-0 shadow-sm shadow-sky-500/20">
+                <Send className="w-4 h-4 text-sky-400" />
               </div>
               <div className="min-w-0">
                 <div className="text-xs font-bold text-slate-100 flex items-center gap-1.5 flex-wrap">
-                  <span>টেলিগ্রাম চ্যানেল ব্রডকাস্ট (Multi-Channel):</span>
-                  {taskStatus.telegramStatus === 'uploading' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-bold border border-sky-500/40 animate-pulse">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      সব চ্যানেলে আপলোড হচ্ছে...
+                  <span>টেলিগ্রাম ব্রডকাস্ট ইঞ্জিন</span>
+                  {/* Status Pills */}
+                  {(taskStatus.telegramUploading || taskStatus.telegramStatus === 'uploading') && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2.5 py-0.5 rounded-full bg-sky-500/20 text-sky-300 font-bold border border-sky-500/40 animate-pulse">
+                      <Zap className="w-3 h-3 text-sky-400 animate-bounce" />
+                      আপলোড চলছে...
+                    </span>
+                  )}
+                  {taskStatus.telegramStatus === 'queued' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
+                      <Clock className="w-3 h-3 text-amber-400" />
+                      কিউতে সেফ-প্রসেসিং
                     </span>
                   )}
                   {taskStatus.telegramStatus === 'completed' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 font-bold border border-emerald-500/40">
                       <CheckCircle2 className="w-3 h-3 text-emerald-400" />
                       {taskStatus.telegramSuccessCount && taskStatus.telegramSuccessCount > 1
-                        ? `${taskStatus.telegramSuccessCount}টি চ্যানেলে পোস্ট সম্পন্ন!`
+                        ? `${taskStatus.telegramSuccessCount}টি চ্যানেলে সম্পন্ন!`
                         : 'পোস্ট সম্পন্ন!'}
                     </span>
                   )}
                 </div>
-                <p className="text-[11px] text-slate-400 truncate">
-                  {taskStatus.telegramMessage || 'ভিডিওটি একযোগে সকল টেলিগ্রাম চ্যানেলে সরাসরি আপলোড ও প্লে করা যাবে'}
+                <p className="text-[11px] text-slate-400 truncate mt-0.5">
+                  {taskStatus.telegramMessage || 'ভিডিওটি স্বয়ংক্রিয়ভাবে সরাসরি টেলিগ্রাম চ্যানেলে স্ট্রিম হচ্ছে'}
                 </p>
               </div>
             </div>
 
-            <a
-              href="https://t.me/FluxLoad"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-md shadow-sky-500/20 cursor-pointer"
-            >
-              <Send className="w-3 h-3" />
-              <span>Official Channel</span>
-            </a>
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Permanent storage badge */}
+              <div className="hidden sm:inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-medium">
+                <Database className="w-3 h-3" />
+                <span>ডাটা সেভড</span>
+              </div>
+
+              <a
+                href="https://t.me/FluxLoad"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-sky-500 to-blue-600 hover:from-sky-400 hover:to-blue-500 text-white text-xs font-bold flex items-center gap-1 shrink-0 shadow-md shadow-sky-500/20 cursor-pointer"
+              >
+                <Send className="w-3 h-3" />
+                <span>@FluxLoad</span>
+              </a>
+            </div>
           </div>
+
+          {/* REAL-TIME TELEGRAM UPLOAD SPEED & PROGRESS METER */}
+          {(taskStatus.telegramUploading || taskStatus.telegramStatus === 'uploading' || taskStatus.telegramStatus === 'queued') && (
+            <div className="p-3 bg-slate-900/90 rounded-xl border border-sky-500/30 space-y-2">
+              <div className="flex items-center justify-between text-xs">
+                <div className="flex items-center gap-1.5 font-bold text-sky-300">
+                  <Gauge className="w-4 h-4 text-sky-400 animate-pulse" />
+                  <span>টেলিগ্রাম আপলোড স্পিড:</span>
+                  <span className="font-mono text-white bg-sky-500/20 px-2 py-0.5 rounded border border-sky-500/30">
+                    {taskStatus.telegramSpeed || 'Calculating...'}
+                  </span>
+                </div>
+                <div className="text-[11px] font-mono text-slate-300">
+                  {taskStatus.telegramProgress !== undefined ? `${taskStatus.telegramProgress}%` : '5%'}
+                  {taskStatus.telegramEta && <span className="text-slate-400 ml-1.5 font-sans">• ETA {taskStatus.telegramEta}</span>}
+                </div>
+              </div>
+
+              {/* Glowing Upload Progress Bar */}
+              <div className="w-full bg-slate-800 rounded-full h-2.5 overflow-hidden p-0.5 relative">
+                <div
+                  className="bg-gradient-to-r from-sky-500 via-cyan-400 to-blue-500 h-full rounded-full transition-all duration-300 shadow-sm shadow-sky-400/50 relative overflow-hidden"
+                  style={{ width: `${Math.max(6, Math.min(100, taskStatus.telegramProgress || 10))}%` }}
+                >
+                  <div className="absolute inset-0 bg-white/20 animate-shimmer" />
+                </div>
+              </div>
+
+              {/* Anti-Crash Safeguard Indicator */}
+              <div className="flex items-center justify-between text-[10px] text-slate-400 pt-0.5">
+                <span className="flex items-center gap-1 text-emerald-400">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Anti-Crash Protection Active: মেমোরি ও রেট-লিমিট নিরাপদ সেফগার্ড</span>
+                </span>
+                <span className="text-slate-500">Zero-Freeze Stream</span>
+              </div>
+            </div>
+          )}
+
+          {/* COMPLETED TELEGRAM UPLOAD SUMMARY */}
+          {taskStatus.telegramStatus === 'completed' && (
+            <div className="p-3 bg-emerald-950/40 rounded-xl border border-emerald-500/30 flex items-center justify-between gap-2 flex-wrap">
+              <div className="flex items-center space-x-2">
+                <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                <div className="text-xs">
+                  <span className="font-bold text-emerald-200">সফলভাবে টেলিগ্রাম চ্যানেলে পোস্ট হয়েছে!</span>
+                  {taskStatus.telegramSpeed && (
+                    <span className="text-slate-400 block text-[10px]">
+                      গড় আপলোড স্পিড: <span className="font-mono text-emerald-300 font-bold">{taskStatus.telegramSpeed}</span>
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-emerald-400/90 font-mono bg-emerald-900/40 px-2 py-0.5 rounded border border-emerald-500/30">
+                  💾 ডাটা সর্বদা সংরক্ষিত
+                </span>
+                {taskStatus.telegramPostUrl && (
+                  <a
+                    href={taskStatus.telegramPostUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3 py-1 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold rounded-lg text-xs flex items-center gap-1 shadow-sm transition-colors cursor-pointer"
+                  >
+                    <span>চ্যানেলে দেখুন</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Individual Channel Post Links */}
           {taskStatus.telegramChannels && taskStatus.telegramChannels.length > 0 && (
@@ -643,7 +739,7 @@ export const DownloadProgressCard: React.FC<DownloadProgressCardProps> = ({
                         href={ch.channelPostUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold flex items-center gap-1"
+                        className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
                       >
                         <span>পোস্ট দেখুন</span>
                         <ExternalLink className="w-2.5 h-2.5" />

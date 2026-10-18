@@ -136,10 +136,36 @@ export interface BatchSettings {
   autoTriggerBrowserDownload: boolean;
 }
 
+export interface ScheduledBatchTask {
+  id: string;
+  name: string;
+  scheduledTime: string; // ISO timestamp
+  status: 'pending' | 'running' | 'completed' | 'cancelled' | 'failed';
+  items: Array<{
+    id: string;
+    url: string;
+    title?: string;
+    type?: DownloadType;
+    quality?: VideoQuality;
+    format?: VideoFormatChoice;
+  }>;
+  concurrency: number;
+  autoSendTelegram?: boolean;
+  autoSaveToDownloads?: boolean;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+  error?: string;
+  executedTaskIds?: string[];
+}
+
 export interface TelegramChannelItem {
   chatId: string;
   channelTitle?: string;
   enabled?: boolean;
+  botToken?: string;
+  botUsername?: string;
+  customCaption?: string;
 }
 
 export interface TelegramConfig {
@@ -304,7 +330,13 @@ export interface TaskStatus {
   botBlocked?: boolean;
   isInstagramError?: boolean;
   platform?: string;
-  telegramStatus?: 'idle' | 'uploading' | 'completed' | 'forbidden_admin_needed' | 'error';
+  telegramUploading?: boolean;
+  telegramSpeed?: string; // e.g. "5.4 MB/s"
+  telegramProgress?: number; // 0 - 100
+  telegramEta?: string; // e.g. "12s"
+  telegramUploadedBytes?: number;
+  telegramTotalBytes?: number;
+  telegramStatus?: 'idle' | 'queued' | 'uploading' | 'completed' | 'forbidden_admin_needed' | 'error';
   telegramPostUrl?: string;
   telegramPostUrls?: string[];
   telegramChannels?: Array<{
@@ -322,7 +354,55 @@ export interface TaskStatus {
   telegramError?: string;
 }
 
-export type AppNavMode = 'single' | 'social' | 'batch' | 'cutter' | 'converter';
+export interface TelegramUploadHistoryItem {
+  id: string;
+  taskId?: string;
+  title: string;
+  filename: string;
+  formattedSize: string;
+  fileSizeBytes: number;
+  channelTitle?: string;
+  targetChat: string;
+  channelPostUrl?: string;
+  uploadedAt: string;
+  speed?: string;
+  durationSeconds?: number;
+  status: 'completed' | 'failed';
+  error?: string;
+}
+
+export type AppNavMode = 'single' | 'social' | 'batch' | 'crawler' | 'cutter' | 'converter';
+
+export interface DiscoveredVideoItem {
+  url: string;
+  title: string;
+  foundAt: string;
+  status: 'discovered' | 'queued' | 'downloading' | 'completed' | 'posted' | 'failed';
+  taskId?: string;
+  channelPostUrl?: string;
+  error?: string;
+  fileSizeMb?: number;
+}
+
+export interface DomainWatcher {
+  id: string;
+  name: string;
+  domainUrl: string;
+  intervalMinutes: number;
+  autoDownload: boolean;
+  autoPostTelegram: boolean;
+  targetChats?: string[];
+  maxVideosPerScan: number;
+  status: 'active' | 'paused' | 'running';
+  lastScanAt?: string;
+  nextScanAt?: string;
+  totalDiscovered: number;
+  totalDownloaded: number;
+  totalPosted: number;
+  processedUrls: string[];
+  discoveredItems: DiscoveredVideoItem[];
+  createdAt: string;
+}
 
 export interface TrimRequest {
   taskId?: string;

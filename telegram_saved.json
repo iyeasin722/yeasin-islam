@@ -7,6 +7,32 @@
       "chatId": "@FluxLoad",
       "channelTitle": "FluxLoad (Official)",
       "enabled": true
+    },
+    {
+      "chatId": "@GlobalCommunityOfficial",
+      "channelTitle": "Global Community",
+      "enabled": true,
+      "customCaption": "🎬 {title} • Exclusive Post for Global Community\n📦 {part}\n📢 {channel}"
+    },
+    {
+      "chatId": "@sexbd18d",
+      "channelTitle": "Sex BD 18+",
+      "enabled": true
+    },
+    {
+      "chatId": "@crypto_mining_s_e_x",
+      "channelTitle": "Crypto Mining & Media",
+      "enabled": true
+    },
+    {
+      "chatId": "@Secret_Hub_BD",
+      "channelTitle": "Secret Hub BD",
+      "enabled": true
+    },
+    {
+      "chatId": "@bdallvideio",
+      "channelTitle": "BD All Video",
+      "enabled": true
     }
   ],
   "botUsername": "black_world722_bot",
